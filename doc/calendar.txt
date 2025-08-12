@@ -60,9 +60,9 @@ SETTINGS                                        *calendar-settings*
 calendar.vim can be configured using the following settings:
 
                                                 *g:calendar_no_mappings*
-Disable default mappings:
-  g:calendar_no_mappings=0
-
+Disable default mappings: >
+  g:calendar_no_mappings = false
+<
                                                 *g:calendar_focus_today*
 Keeps focus when moving to next or previous calendar: >
   g:calendar_focus_today = true
@@ -86,9 +86,9 @@ An example in your .vimrc might look like this: >
 <
 
                                                 *g:calendar_mark*
-Place a '*' or '+' mark after the day.  Acceptable values are 'left',
-'left-fit', and 'right': >
-  g:calendar_mark = 'right'
+Place a "*" or "+" mark after the day.  Acceptable values are "left",
+"left-fit", and "right": >
+  g:calendar_mark = "right"
 <
 
                                                 *g:calendar_diary*
@@ -99,8 +99,8 @@ Specify the directory for the diary files.  The default value is $HOME/diary. >
                                            *g:calendar_diary_list*
 Specify multiple diary configurations. >
   g:calendar_diary_list = [
-       {'name': 'Note', 'path': $HOME.'/note', 'ext': '.md'},
-       {'name': 'Diary', 'path': $HOME.'/diary', 'ext': '.diary.md'},
+       {name: 'Note', path: $HOME.'/note', ext: '.md'},
+       {name: 'Diary', path: $HOME.'/diary', ext: '.diary.md'},
      ]
 <
 
@@ -111,7 +111,7 @@ Specify multiple diary default configuration. The default value is 0. >
 
                                                 *g:calendar_navi*
 To control the calendar navigator, set this variable.  Acceptable values are
-'top', 'bottom', or 'both'. >
+"top", "bottom", or "both". >
   g:calendar_navi = ''
 <
 
@@ -226,9 +226,9 @@ next to certain dates.  Implement and set your function as follows: >
     # month : month you actioned
     # year  : year you actioned
     if day == 1 && month == 1
-      return 1 " happy new year
+      return 1 # happy new year
     else
-      return 0 " or not
+      return 0 # or not
     endif
   enddef
   g:calendar_sign = 'g:MyCalSign'

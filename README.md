@@ -19,7 +19,7 @@ Bring up a calendar based on today's date in a vertically split window:
 
 Bring up a calendar showing November, 1991 (The month Vim was first released):
 
-    :Calendar 1991 11
+    :Calendar 1991, 11
 
 The above calendars can alternatively be displayed in a horizontally split
 window:
