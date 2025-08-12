@@ -1,0 +1,12 @@
+Error: Test Test_calendarH_basic() failed with exception Vim(eval):E1012: Type mismatch; expected string but got number at command line..script /home/yt75534/repos/vim-calendar/test/runner.vim[48]..function <SNR>22_RunTests[20]..Test_calendarH_basic, line 8
+Test_calendarH_basic(): FAIL
+Error: Test Test_calendarVR_basic() failed with exception Vim(eval):E1012: Type mismatch; expected string but got number at command line..script /home/yt75534/repos/vim-calendar/test/runner.vim[48]..function <SNR>22_RunTests[20]..Test_calendarVR_basic, line 9
+Test_calendarVR_basic(): FAIL
+Error: Test Test_calendar_basic() failed with exception Vim(eval):E1012: Type mismatch; expected string but got number at command line..script /home/yt75534/repos/vim-calendar/test/runner.vim[48]..function <SNR>22_RunTests[20]..Test_calendar_basic, line 8
+Test_calendar_basic(): FAIL
+Error: Test Test_config() failed with exception Vim(eval):E1012: Type mismatch; expected string but got number at command line..script /home/yt75534/repos/vim-calendar/test/runner.vim[48]..function <SNR>22_RunTests[20]..Test_config, line 11
+Test_config(): FAIL
+Error: Test Test_hooks() failed with exception Vim(eval):E1050: Colon required before a range: %bw! at command line..script /home/yt75534/repos/vim-calendar/test/runner.vim[48]..function <SNR>22_RunTests[20]..Test_hooks, line 35
+Test_hooks(): FAIL
+Error: Test Test_syntax_highlight() failed with exception Vim(eval):E1004: White space required before and after '%' at "%bw!" at command line..script /home/yt75534/repos/vim-calendar/test/runner.vim[48]..function <SNR>22_RunTests[20]..Test_syntax_highlight, line 98
+Test_syntax_highlight(): FAIL
