@@ -1,31 +1,17 @@
-calendar.vim
-============
+# vim-calendar
 
-`calendar.vim` creates a calendar window you can use within vim.  It is useful
-in its own right as a calendar-inside-vim.  It also provides hooks to customise
+Port of @mattn [calendar-vim][1] to Vim9!
+
+`calendar.vim` creates a calendar window you can use within vim. It is useful
+in its own right as a calendar-inside-vim. It also provides hooks to customise
 its behaviour, making it a good basis for writing new plugins which require
 calendar functionality (see `:help calendar-hooks` for more information).
 
-Installation
-------------
+## Installation
 
-You can install `calendar.vim` in the usual way, by copying the contents of the
-`plugin`, `autoload` and `doc` directories into the equivalent directories
-inside `.vim`.
+The easiest if to use any plugin manager (vim-plug, minpac, etc.)
 
-Alternatively, if you manage your plugins using [pathogen.vim][1], you can
-simply clone into the `bundle` directory:
-
-    cd ~/.vim/bundle
-    git clone git://github.com/mattn/calendar-vim
-
-Or, using submodules:
-
-    cd ~/.vim
-    git submodule add git://github.com/mattn/calendar-vim bundle/calendar-vim
-
-Usage
------
+## Usage
 
 Bring up a calendar based on today's date in a vertically split window:
 
@@ -46,10 +32,12 @@ Bring up a full-screen:
 
 Fast mappings are provided:
 
-* <kbd>&lt;LocalLeader&gt;cal</kbd>: Vertically-split calendar
-* <kbd>&lt;LocalLeader&gt;caL</kbd>: Horizontally-split calendar
+- <kbd>&lt;LocalLeader&gt;cal</kbd>: Vertically-split calendar
+- <kbd>&lt;LocalLeader&gt;caL</kbd>: Horizontally-split calendar
 
-For full documentation, install the plugin and run `:help calendar` from within
-Vim.
+For full documentation, install the plugin and run `:help calendar` from
+within Vim.
 
-[1]: https://github.com/tpope/vim-pathogen
+<!-- DO NOT REMOVE vim-markdown-extras references DO NOT REMOVE-->
+
+[1]: https://github.com/mattn/calendar-vim
