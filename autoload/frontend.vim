@@ -8,6 +8,44 @@ var mm = str2nr(strftime('%m'))
 var dd = str2nr(strftime('%d'))
 var Ww = str2nr(strftime('%W'))
 
+# def CalendarPopup(calendar: any)
+#    var popup_id = popup_create(calendar, {
+#         title: " Calendar ",
+#         line: 1,
+#         col: 1,
+#         pos: "topleft",
+#         posinvert: false,
+#         filter: HelpMeFilter,
+#         borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
+#         border: [1, 1, 1, 1],
+#         maxheight: &lines - 1,
+#         mapping: 0,
+#         })
+# enddef
+
+# def HelpMeFilter(id: number, key: string): bool
+#   # To handle the keys when release notes popup is visible
+#   # Close
+#   if key ==# 'q' || key ==# "\<esc>"
+#     popup_close(id)
+#   # Move down
+#   elseif ["\<tab>", "\<C-n>", "\<Down>", "\<ScrollWheelDown>"]->index(key) != -1
+#     win_execute(id, "normal! \<c-e>")
+#   # Move up
+#   elseif ["\<S-Tab>", "\<C-p>", "\<Up>", "\<ScrollWheelUp>"]->index(key) != -1
+#     win_execute(id, "normal! \<c-y>")
+#   # Jump down
+#   elseif key == "\<C-f>"
+#     win_execute(id, "normal! \<c-f>")
+#   # Jump up
+#   elseif key == "\<C-b>"
+#     win_execute(id, "normal! \<c-b>")
+#   else
+#     return false
+#   endif
+#   return true
+# enddef
+
 # cal_type 0 = iso, 1 = us, 2 = work days
 def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bool): list<list<number>>
   # Identify today, check if it is visible
@@ -68,6 +106,7 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
     ->join()
     appendbufline('%', firstline, $" {line_cleaned}")
 
+
     if cal_type != 2
       # Higlight Saturdays
       range(firstline + 1, line('$'))
@@ -111,6 +150,10 @@ def DisplayMultipleCal(
     endif
     appendbufline('%', line('$'), '')
   endfor
+  var lines = getline(1, '$')
+  # close
+  #   # TODO: remove me
+  #   CalendarPopup(lines)
 enddef
 
 # ===================== TESTS =================================
@@ -160,7 +203,7 @@ endfor
 
 var Y  = 2025
 var M = 1
-var CAL_TYPE = 0
+var CAL_TYPE = 2
 DisplayMultipleCal(Y, M, CAL_TYPE, true)
 # vnew
 # DisplaySingleCal(XXX, 8, false, true)
