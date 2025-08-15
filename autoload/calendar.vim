@@ -1110,8 +1110,10 @@ def MakeDir(dir: string): number
   if (has("unix"))
     system($"mkdir {dir}")
     rc = v:shell_error
-  elseif (has("win16") || has("win32") || has("win95") ||
-      has("dos16") || has("dos32") || has("os2"))
+  # TODO
+  # elseif (has("win16") || has("win32") || has("win95") ||
+  #     has("dos16") || has("dos32") || has("os2"))
+  elseif has("win32")
     system($"mkdir \"{dir}\"")
     rc = v:shell_error
   else
@@ -1133,7 +1135,7 @@ enddef
 def Diary(day: number, month: number, year: number, week: number, dir: string)
   # build the file name and create directories as needed
   if !isdirectory(expand(g:calendar_diary))
-    confirm("please create diary directory: {g:calendar_diary}", 'OK')
+    confirm($"please create diary directory: {g:calendar_diary}", 'OK')
     return
   endif
   var sfile = $"{expand(g:calendar_diary)}/{printf("%04d", year)}"
