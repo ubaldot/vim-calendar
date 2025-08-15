@@ -1,6 +1,6 @@
 vim9script
 
-import "./backend.vim"
+import autoload "./backend.vim"
 
 # Example: Get current date's calendar
 var yy = str2nr(strftime('%Y'))
@@ -8,41 +8,57 @@ var mm = str2nr(strftime('%m'))
 var dd = str2nr(strftime('%d'))
 var Ww = str2nr(strftime('%W'))
 
-def DisplaySingleCal(year: number, month: number, start_on_sunday: bool, inc_week: bool): list<list<number>>
-  # Identify today
+# cal_type 0 = iso, 1 = us, 2 = work days
+def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bool): list<list<number>>
+  # Identify today, check if it is visible
   var is_today_year_month = strftime('%Y') == printf('%04d', year)
       && strftime('%m') == printf('%02d', month)
 
-  # TODO
-  const five_days = false
+  # Switch options
+  var weekdays = ''
+  var calendar: list<list<number>>
+  # For highlighting Saturday and Sunday
+  var col_Sat = -1
+  var col_Sun = -1
+
+  if cal_type == 0
+    weekdays = 'Mo Tu We Th Fr Sa Su'
+    calendar = backend.CalendarMonth_iso8601(year, month, inc_week)
+    col_Sat = 17
+    col_Sun = 20
+  elseif cal_type == 1
+    weekdays =  'Su Mo Tu We Th Fr Sa'
+    calendar = backend.ConvertISOtoUS(
+      backend.CalendarMonth_iso8601(year, month, inc_week), month
+    )
+    col_Sat = 20
+    col_Sun = 2
+  elseif cal_type == 2
+    weekdays =  'Mo Tu We Th Fr'
+    calendar = backend.CalendarMonth_iso8601(year, month, inc_week)
+      ->mapnew((_, val) => add(val[0 : 4], val[7]))
+      ->filter((_, val) => val[0 : 4] != [0, 0, 0, 0, 0] )
+    col_Sat = -1
+    col_Sun = -1
+  else
+    echoerr "[vim-calendar]: 'cal_type' shall be 0, 1 or 2"
+  endif
 
   # Fix head
   var month_str = backend.month_n2_to_str[printf('%02d', month)]
-  var padding = max([0, 18 - len(month_str)]) / 2
+  var padding = max([0, 18 - len(month_str)]) / 2 - 2 * cal_type
   var year_month = $"{repeat(' ', padding)}{month_str} {year}"
   appendbufline('%', line('$'), $"{year_month}")
   matchadd('WarningMsg', year_month)
 
   # Fix weekdays
-  var weekdays = start_on_sunday
-    ? 'Su Mo Tu We Th Fr Sa'
-    : 'Mo Tu We Th Fr Sa Su'
-
   padding = inc_week ? 4 : 1
   appendbufline('%', line('$'), $" {weekdays}")
   matchadd('StatusLine', weekdays)
 
-  # Actual days
-  var cal = start_on_sunday
-    ? backend.ConvertISOtoUS(backend.CalendarMonth_iso8601(year, month, inc_week), month)
-    : backend.CalendarMonth_iso8601(year, month, inc_week)
-
-  # For the highlight
-  const col_Sa = start_on_sunday ? 20 : 17
-  const col_Su = start_on_sunday ? 2 : 20
 
   # Build the calendar
-  for line in cal
+  for line in calendar
     var firstline = line('$')
     var line_cleaned: string =
       line->mapnew((_, val) => printf('%02d', val))
@@ -52,20 +68,21 @@ def DisplaySingleCal(year: number, month: number, start_on_sunday: bool, inc_wee
     ->join()
     appendbufline('%', firstline, $" {line_cleaned}")
 
-    if !five_days
+    if cal_type != 2
       # Higlight Saturdays
       range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('Special', [[val, col_Sa, 2]]))
+        ->map((_, val) => matchaddpos('Special', [[val, col_Sat, 2]]))
 
       # Highlight Sundays
       range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('Error', [[val, col_Su, 2]]))
+        ->map((_, val) => matchaddpos('Error', [[val, col_Sun, 2]]))
     endif
 
+    # Highlight week
     if inc_week
-      # Highlight week
+      var col_Week = cal_type == 2 ? 17 : 23
       range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('CursorLineNr', [[val, 23, 2]]))
+        ->map((_, val) => matchaddpos('CursorLineNr', [[val, col_Week, 2]]))
     endif
 
     # Highlight today
@@ -76,18 +93,22 @@ def DisplaySingleCal(year: number, month: number, start_on_sunday: bool, inc_wee
       matchadd('DiffAdd', $'{line_span}\zs{today}')
     endif
   endfor
-  return cal
+  return calendar
 enddef
 
 def DisplayMultipleCal(
     year: number,
     month: number,
-    start_on_sunday: bool = true,
+    cal_type: number = 0,
     inc_week: bool = false,
     N: number = 3)
   vnew
   for ii in range(N)
-    DisplaySingleCal(year, month - 1 + ii, start_on_sunday, inc_week)
+    if ii == 0 && month == 1
+      DisplaySingleCal(year - 1, 12, cal_type, inc_week)
+    else
+      DisplaySingleCal(year, month - 1 + ii, cal_type, inc_week)
+    endif
     appendbufline('%', line('$'), '')
   endfor
 enddef
@@ -137,7 +158,10 @@ for yyy in test_years
 endfor
 # echom assert_equal(expected_us_results, actual_results)
 
-var XXX  = 2025
-vnew
-DisplaySingleCal(XXX, 8, false, true)
-DisplaySingleCal(XXX, 8, true, true)
+var Y  = 2025
+var M = 1
+var CAL_TYPE = 0
+DisplayMultipleCal(Y, M, CAL_TYPE, true)
+# vnew
+# DisplaySingleCal(XXX, 8, false, true)
+# DisplaySingleCal(XXX, 8, true, true)
