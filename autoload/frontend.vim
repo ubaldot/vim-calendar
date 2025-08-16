@@ -175,12 +175,10 @@ const expected_results = [
   {'January 2024': [1, 2, 3, 4, 5, 6, 7, 1]}
 ]
 const test_years = [2005, 2006, 2010, 2015, 2016, 2018, 2021, 2022, 2024]
-var ii = 0
-for yyy in test_years
+for [ii, yyy] in items(test_years)
   var [calendar_key, calendar_values] = items(backend.CalendarMonth_iso8601(yyy, 1, true))[0]
   var actual_result = {['January ' .. yyy]: calendar_values[0]}
   echom assert_equal(expected_results[ii], actual_result)
-  ii += 1
 endfor
 
 # Start on Sunday
@@ -195,13 +193,11 @@ const expected_us_results = [
   {'January 2022': [0, 0, 0, 0, 0, 0, 1, 52]},   # first Sunday Jan 2
   {'January 2024': [0, 1, 2, 3, 4, 5, 6, 1]}    # first Sunday Jan 7
 ]
-ii = 0
-messages clear
-for yyy in test_years
+
+for [ii, yyy] in items(test_years)
   var [calendar_key, calendar_values] = items(backend.ConvertISOtoUS(backend.CalendarMonth_iso8601(yyy, 1, true)))[0]
   var actual_result = {['January ' .. yyy]: calendar_values[0]}
   echom assert_equal(expected_us_results[ii], actual_result)
-  ii += 1
 endfor
 var Y  = 2025
 var M = 11
