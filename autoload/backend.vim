@@ -2,21 +2,25 @@ vim9script
 
 # Functions for backend computations, like Zeller's congruence formula,
 # computation of calendar of a given month/year, etc
+if !exists('month_n2_to_str')
+  export const month_n2_to_str = {
+    01: "January",
+    02: "February",
+    03: "March",
+    04: "April",
+    05: "May",
+    06: "June",
+    07: "July",
+    08: "August",
+    09: "September",
+    10: "October",
+    11: "November",
+    12: "December",
+  }
+endif
 
-export const month_n2_to_str = {
-  01: "January",
-  02: "February",
-  03: "March",
-  04: "April",
-  05: "May",
-  06: "June",
-  07: "July",
-  08: "August",
-  09: "September",
-  10: "October",
-  11: "November",
-  12: "December",
-}
+# I have to do this otherwise it won't like it
+var month_nr_to_str = month_n2_to_str
 
 # Number of days in a given month
 def DaysInMonth(year: number, month: number): number
@@ -49,16 +53,18 @@ def WeekdayOfDate(year: number, month: number, day: number): number
     return (h + 5) % 7
 enddef
 
-# TODO: if 1st January is in the last week of December, then it shall be set
-# to w1. However, we cannot distinguish the month as we just pass a calendar
 # Convert ISO (Monday-start) calendar to US (Sunday-start) calendar
-export def ConvertISOtoUS(iso_calendar: list<list<number>>, month: number): list<list<number>>
-    var us_calendar: list<list<number>> = []
+export def ConvertISOtoUS(iso_calendar: dict<list<list<number>>>): dict<list<list<number>>>
+    # Save heading (only key)
+    const month_year = keys(iso_calendar)[0]
+
+    # Values
+    var us_calendar_values: list<list<number>> = []
     var carry_sunday = 0
     var carry_week = 0  # ISO week of carried Sunday
-    var iso_week_present = len(iso_calendar[0]) == 8 ? true : false
+    var iso_week_present = len(iso_calendar[month_year][0]) == 8 ? true : false
 
-    for week in iso_calendar
+    for week in values(iso_calendar)[0]
         var new_week = week[0 : 6]
         var iso_week = iso_week_present ? week[7] : -1
         var sunday = new_week[6]
@@ -74,7 +80,7 @@ export def ConvertISOtoUS(iso_calendar: list<list<number>>, month: number): list
           carry_week = iso_week
         endif
 
-        add(us_calendar, new_week)
+        add(us_calendar_values, new_week)
 
         # Carry Sunday to next row
         carry_sunday = sunday
@@ -85,22 +91,22 @@ export def ConvertISOtoUS(iso_calendar: list<list<number>>, month: number): list
       var last_week = iso_week_present
         ?  [carry_sunday, 0, 0, 0, 0, 0, 0, carry_week + 1]
         :  [carry_sunday, 0, 0, 0, 0, 0, 0]
-      add(us_calendar, last_week)
+      add(us_calendar_values, last_week)
     endif
 
     # Remove first row if all zeros
-    if count(us_calendar[0][0 : 6], 0) == 7
-        remove(us_calendar, 0)
+    if count(us_calendar_values[0][0 : 6], 0) == 7
+        remove(us_calendar_values, 0)
     endif
 
     # TODO: check it better
     # If 1st of January falls in the last week of the year, then it become the
     # first week of the year
-    # if month == 12 && us_calendar[-1][-2] != 31
-    #   us_calendar[-1][-1] = 1
+    # if month == 12 && us_calendar_values[-1][-2] != 31
+    #   us_calendar_values[-1][-1] = 1
     # endif
 
-    return us_calendar
+    return {[month_year]: us_calendar_values}
 enddef
 
 # Compute ISO 8601 week number for a given date
@@ -151,10 +157,12 @@ def ISOWeekNumber(year: number, month: number, day: number): number
 enddef
 
 # Generate calendar with optional ISO week numbers at the end, 0=Monday
+# Return is a dict
+# {'August 2012': [[0, 0, 0, 1, 2, 3, 4, 34], [5, 6, 7, 8, 9, 10, 11, 35], ... ]}
 export def CalendarMonth_iso8601(
     year: number,
     month: number,
-    add_weeknum: bool = false): list<list<number>>
+    add_weeknum: bool = false): dict<list<list<number>>>
 
     var month_days = DaysInMonth(year, month)
     var first_wday = WeekdayOfDate(year, month, 1)  # weekday 0=Mon
@@ -199,5 +207,7 @@ export def CalendarMonth_iso8601(
         weeks->add(week)
     endif
 
-    return weeks
+    # Build dict key, e.g. 'August 2025'
+    const k = $"{month_nr_to_str[printf('%02d', month)]} {year}"
+    return {[k]: weeks}
 enddef

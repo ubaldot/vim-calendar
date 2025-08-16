@@ -47,14 +47,14 @@ var Ww = str2nr(strftime('%W'))
 # enddef
 
 # cal_type 0 = iso, 1 = us, 2 = work days
-def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bool): list<list<number>>
+def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bool): dict<list<list<number>>>
   # Identify today, check if it is visible
   var is_today_year_month = strftime('%Y') == printf('%04d', year)
       && strftime('%m') == printf('%02d', month)
 
   # Switch options
   var weekdays = ''
-  var calendar: list<list<number>>
+  var calendar: dict<list<list<number>>>
   # For highlighting Saturday and Sunday
   var col_Sat = -1
   var col_Sun = -1
@@ -67,15 +67,17 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
   elseif cal_type == 1
     weekdays =  'Su Mo Tu We Th Fr Sa'
     calendar = backend.ConvertISOtoUS(
-      backend.CalendarMonth_iso8601(year, month, inc_week), month
+      backend.CalendarMonth_iso8601(year, month, inc_week)
     )
     col_Sat = 20
     col_Sun = 2
   elseif cal_type == 2
     weekdays =  'Mo Tu We Th Fr'
-    calendar = backend.CalendarMonth_iso8601(year, month, inc_week)
+    const [calendar_key, calendar_values] = items(backend.CalendarMonth_iso8601(year, month, inc_week))[0]
+    const calendar_values_short_week = calendar_values
       ->mapnew((_, val) => add(val[0 : 4], val[7]))
       ->filter((_, val) => val[0 : 4] != [0, 0, 0, 0, 0] )
+    calendar = {[calendar_key]: calendar_values_short_week}
     col_Sat = -1
     col_Sun = -1
   else
@@ -83,9 +85,11 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
   endif
 
   # Fix head
-  var month_str = backend.month_n2_to_str[printf('%02d', month)]
-  var padding = max([0, 18 - len(month_str)]) / 2 - 2 * cal_type
-  var year_month = $"{repeat(' ', padding)}{month_str} {year}"
+  var month_year_str = keys(calendar)[0]
+  var padding = cal_type == 2
+    ? max([2, 13 - len(month_year_str)])
+    : max([5, 15 - len(month_year_str)])
+  var year_month = $"{repeat(' ', padding)}{month_year_str}"
   appendbufline('%', line('$'), $"{year_month}")
   matchadd('WarningMsg', year_month)
 
@@ -95,8 +99,8 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
   matchadd('StatusLine', weekdays)
 
 
-  # Build the calendar
-  for line in calendar
+  # Build the calendar values
+  for line in values(calendar)[0]
     var firstline = line('$')
     var line_cleaned: string =
       line->mapnew((_, val) => printf('%02d', val))
@@ -107,6 +111,7 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
     appendbufline('%', firstline, $" {line_cleaned}")
 
 
+    # Highligh
     if cal_type != 2
       # Higlight Saturdays
       range(firstline + 1, line('$'))
@@ -158,53 +163,51 @@ enddef
 
 # ===================== TESTS =================================
 # Expected results are for January of different years
-const expected_results = {
-  '2005': [0, 0, 0, 0, 0, 1, 2, 53],
-  '2006': [0, 0, 0, 0, 0, 0, 1, 52],
-  '2010': [0, 0, 0, 0, 1, 2, 3, 53],
-  '2015': [0, 0, 0, 1, 2, 3, 4, 1],
-  '2016': [0, 0, 0, 0, 1, 2, 3, 53],
-  '2018': [1, 2, 3, 4, 5, 6, 7, 1],
-  '2021': [0, 0, 0, 0, 1, 2, 3, 53],
-  '2022': [0, 0, 0, 0, 0, 1, 2, 52],
-  '2024': [1, 2, 3, 4, 5, 6, 7, 1]
-}
-var actual_results = {}
-var current_result = {}
+const expected_results = [
+  {'January 2005': [0, 0, 0, 0, 0, 1, 2, 53]},
+  {'January 2006': [0, 0, 0, 0, 0, 0, 1, 52]},
+  {'January 2010': [0, 0, 0, 0, 1, 2, 3, 53]},
+  {'January 2015': [0, 0, 0, 1, 2, 3, 4, 1]},
+  {'January 2016': [0, 0, 0, 0, 1, 2, 3, 53]},
+  {'January 2018': [1, 2, 3, 4, 5, 6, 7, 1]},
+  {'January 2021': [0, 0, 0, 0, 1, 2, 3, 53]},
+  {'January 2022': [0, 0, 0, 0, 0, 1, 2, 52]},
+  {'January 2024': [1, 2, 3, 4, 5, 6, 7, 1]}
+]
 const test_years = [2005, 2006, 2010, 2015, 2016, 2018, 2021, 2022, 2024]
+var ii = 0
 for yyy in test_years
-  var cal = backend.CalendarMonth_iso8601(yyy, 1, true)
-  current_result = {[yyy]: cal[0]}
-  extend(actual_results, current_result)
+  var [calendar_key, calendar_values] = items(backend.CalendarMonth_iso8601(yyy, 1, true))[0]
+  var actual_result = {['January ' .. yyy]: calendar_values[0]}
+  echom assert_equal(expected_results[ii], actual_result)
+  ii += 1
 endfor
-# echom assert_equal(expected_results, actual_results)
 
 # Start on Sunday
-const expected_us_results = {
-  '2005': [0, 0, 0, 0, 0, 0, 1, 53],  # Jan 1 is Saturday → week 53 prev. year
-  '2006': [1, 2, 3, 4, 5, 6, 7, 1],   # Jan 1 is Sunday → week 1
-  '2010': [0, 0, 0, 0, 0, 1, 2, 53],   # first Sunday Jan 3
-  '2015': [0, 0, 0, 0, 1, 2, 3, 1],   # first Sunday Jan 4
-  '2016': [0, 0, 0, 0, 0, 1, 2, 53],   # first Sunday Jan 3
-  '2018': [0, 1, 2, 3, 4, 5, 6, 1],   # first Sunday Jan 7
-  '2021': [0, 0, 0, 0, 0, 1, 2, 53],   # first Sunday Jan 3
-  '2022': [0, 0, 0, 0, 0, 0, 1, 52],   # first Sunday Jan 2
-  '2024': [0, 1, 2, 3, 4, 5, 6, 1]    # first Sunday Jan 7
-}
-
-actual_results = {}
-current_result = {}
+const expected_us_results = [
+  {'January 2005': [0, 0, 0, 0, 0, 0, 1, 53]},  # Jan 1 is Saturday → week 53 prev. year
+  {'January 2006': [1, 2, 3, 4, 5, 6, 7, 1]},   # Jan 1 is Sunday → week 1
+  {'January 2010': [0, 0, 0, 0, 0, 1, 2, 53]},   # first Sunday Jan 3
+  {'January 2015': [0, 0, 0, 0, 1, 2, 3, 1]},   # first Sunday Jan 4
+  {'January 2016': [0, 0, 0, 0, 0, 1, 2, 53]},   # first Sunday Jan 3
+  {'January 2018': [0, 1, 2, 3, 4, 5, 6, 1]},   # first Sunday Jan 7
+  {'January 2021': [0, 0, 0, 0, 0, 1, 2, 53]},   # first Sunday Jan 3
+  {'January 2022': [0, 0, 0, 0, 0, 0, 1, 52]},   # first Sunday Jan 2
+  {'January 2024': [0, 1, 2, 3, 4, 5, 6, 1]}    # first Sunday Jan 7
+]
+ii = 0
+messages clear
 for yyy in test_years
-  var cal = backend.ConvertISOtoUS(backend.CalendarMonth_iso8601(yyy, 1, true), 1)
-  current_result = {[yyy]: cal[0]}
-  extend(actual_results, current_result)
+  var [calendar_key, calendar_values] = items(backend.ConvertISOtoUS(backend.CalendarMonth_iso8601(yyy, 1, true)))[0]
+  var actual_result = {['January ' .. yyy]: calendar_values[0]}
+  echom assert_equal(expected_us_results[ii], actual_result)
+  ii += 1
 endfor
-# echom assert_equal(expected_us_results, actual_results)
-
 var Y  = 2025
-var M = 1
+var M = 11
 var CAL_TYPE = 2
 DisplayMultipleCal(Y, M, CAL_TYPE, true)
 # vnew
-# DisplaySingleCal(XXX, 8, false, true)
-# DisplaySingleCal(XXX, 8, true, true)
+# DisplaySingleCal(Y, M, 0, true)
+# DisplaySingleCal(Y, M, 1, true)
+# DisplaySingleCal(Y, M, 2, true)
