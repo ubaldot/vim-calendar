@@ -10,6 +10,14 @@ var Ww = str2nr(strftime('%W'))
 
 var cal_winid = -1
 const cal_bufname = '__Calendar'
+var displayed_months = {}
+
+hi def link CalSaturday Special
+hi def link CalSunday   Error
+hi def link CalRuler    StatusLine
+hi def link CalWeeknm   CursorLineNr
+hi def link CalToday    DiffAdd
+hi def link CalHeader   Special
 
 # def CalendarPopup(calendar: any)
 #    var popup_id = popup_create(calendar, {
@@ -118,18 +126,18 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
     if cal_type != 2
       # Higlight Saturdays
       range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('Special', [[val, col_Sat, 2]]))
+        ->map((_, val) => matchaddpos('CalSaturday', [[val, col_Sat, 2]]))
 
       # Highlight Sundays
       range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('Error', [[val, col_Sun, 2]]))
+        ->map((_, val) => matchaddpos('CalSunday', [[val, col_Sun, 2]]))
     endif
 
     # Highlight week
     if inc_week
       var col_Week = cal_type == 2 ? 17 : 23
       range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('CursorLineNr', [[val, col_Week, 2]]))
+        ->map((_, val) => matchaddpos('CalWeeknm', [[val, col_Week, 2]]))
     endif
 
     # Highlight today
@@ -137,17 +145,35 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
       const today = strftime('%d')
       var line_span = range(firstline + 1, line('$'))
         ->map((_, val) => $'\%{val}l')->join('\|')
-      matchadd('DiffAdd', $'{line_span}\zs{today}')
+      matchadd('CalToday', $'{line_span}\zs{today}')
     endif
   endfor
   return calendar
 enddef
 
-def DayUnderCursor()
+def g:DayUnderCursor()
+  # TO BE TESTED!!!
   # Find month and year
-  if expand('<cword>') =~ '\d\{1,2}'
-    const linenr = search('\s*\w\+\s\d\+', 'bn')
-
+  # If the work under cursor
+  const word_under_cursor = expand('<cword>')
+  const displayed_week_nr = true # TODO: REMOVE ME
+  # TODO: check the winwidth
+  const max_col = displayed_week_nr ? winwidth(cal_winid) - 4 : winwidth(cal_winid)
+  if bufname() == cal_bufname && word_under_cursor =~ '\d\{1,2}' && col('.') < max_col
+    const linenr = search('\s*\u\U\+\s\d\+', 'bnW')
+    if linenr != 0
+      var tmp = trim(getline(linenr))
+      # Remove week nr (TODO: only if it is displayed)
+      var days = displayed_months[tmp]->mapnew((_, val) => val[: -2])
+      var found_day = days
+        ->mapnew((idx, val) => index(val, str2nr(word_under_cursor)))
+        ->filter('v:val != -1')
+      if !empty(found_day)
+        var month_year = split(tmp)
+        const day_month_year = insert(month_year, word_under_cursor, 0)
+        echom day_month_year
+      endif
+    endif
   endif
 enddef
 
@@ -159,7 +185,7 @@ def DisplayMultipleCalVert(
     N: number = 3)
   # TODO: split left or right option
   # Build empty calendar window
-  const cal_winsize = cal_type == 2 ? 22 : 29
+  const cal_winsize = cal_type == 2 ? 18 : 25
   if exists('g:calendar') == 0 || get(g:calendar, 'pos', 'left') == 'left'
     topleft vnew
   else
@@ -167,11 +193,10 @@ def DisplayMultipleCalVert(
   endif
   cal_winid = win_getid()
   win_execute(cal_winid, $'vertical resize {cal_winsize}')
-  win_execute(cal_winid, 'setlocal buftype=nofile bufhidden=hide noswapfile')
+  win_execute(cal_winid, 'setlocal buftype=nofile bufhidden=hide noswapfile nonumber')
   win_execute(cal_winid, $'file {cal_bufname}')
 
   # Populate calendar window
-  var displayed_months = []
   for ii in range(N)
     var tmp = {}
     if ii == 0 && month == 1
@@ -179,17 +204,19 @@ def DisplayMultipleCalVert(
     else
       tmp = DisplaySingleCal(year, month - 1 + ii, cal_type, inc_week)
     endif
-    add(displayed_months, tmp)
+    extend(displayed_months, tmp)
     appendbufline('%', line('$'), '')
   endfor
+  win_execute(cal_winid, 'setlocal nomodifiable')
   messages clear
-  echom displayed_months
   var lines = getline(1, '$')
   # echo matchstr(expand("<cword>"), '[^0].*')
   # close
   #   # TODO: remove me
   #   CalendarPopup(lines)
 enddef
+
+
 
 # ===================== TESTS =================================
 # Expected results are for January of different years
