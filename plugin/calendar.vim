@@ -212,9 +212,6 @@ vim9script
 # * Calendar commands
 # *****************************************************************
 
-if exists('g:loaded_calendar') && g:loaded_calendar
-  finish
-endif
 g:loaded_calendar = true
 
 import autoload "../autoload/calendar.vim"

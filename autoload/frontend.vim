@@ -8,6 +8,9 @@ var mm = str2nr(strftime('%m'))
 var dd = str2nr(strftime('%d'))
 var Ww = str2nr(strftime('%W'))
 
+var cal_winid = -1
+const cal_bufname = '__Calendar'
+
 # def CalendarPopup(calendar: any)
 #    var popup_id = popup_create(calendar, {
 #         title: " Calendar ",
@@ -98,7 +101,6 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
   appendbufline('%', line('$'), $" {weekdays}")
   matchadd('StatusLine', weekdays)
 
-
   # Build the calendar values
   for line in values(calendar)[0]
     var firstline = line('$')
@@ -108,10 +110,11 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
     ->map((_, val) => substitute(val, '^0', ' ', 'g'))
     ->map((_, val) => substitute(val, ',', ' ', 'g'))
     ->join()
+
+    # Write to buffer
     appendbufline('%', firstline, $" {line_cleaned}")
 
-
-    # Highligh
+    # Highlight
     if cal_type != 2
       # Higlight Saturdays
       range(firstline + 1, line('$'))
@@ -140,22 +143,49 @@ def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bo
   return calendar
 enddef
 
-def DisplayMultipleCal(
+def DayUnderCursor()
+  # Find month and year
+  if expand('<cword>') =~ '\d\{1,2}'
+    const linenr = search('\s*\w\+\s\d\+', 'bn')
+
+  endif
+enddef
+
+def DisplayMultipleCalVert(
     year: number,
     month: number,
     cal_type: number = 0,
     inc_week: bool = false,
     N: number = 3)
-  vnew
+  # TODO: split left or right option
+  # Build empty calendar window
+  const cal_winsize = cal_type == 2 ? 22 : 29
+  if exists('g:calendar') == 0 || get(g:calendar, 'pos', 'left') == 'left'
+    topleft vnew
+  else
+    botright vnew
+  endif
+  cal_winid = win_getid()
+  win_execute(cal_winid, $'vertical resize {cal_winsize}')
+  win_execute(cal_winid, 'setlocal buftype=nofile bufhidden=hide noswapfile')
+  win_execute(cal_winid, $'file {cal_bufname}')
+
+  # Populate calendar window
+  var displayed_months = []
   for ii in range(N)
+    var tmp = {}
     if ii == 0 && month == 1
-      DisplaySingleCal(year - 1, 12, cal_type, inc_week)
+      tmp = DisplaySingleCal(year - 1, 12, cal_type, inc_week)
     else
-      DisplaySingleCal(year, month - 1 + ii, cal_type, inc_week)
+      tmp = DisplaySingleCal(year, month - 1 + ii, cal_type, inc_week)
     endif
+    add(displayed_months, tmp)
     appendbufline('%', line('$'), '')
   endfor
+  messages clear
+  echom displayed_months
   var lines = getline(1, '$')
+  # echo matchstr(expand("<cword>"), '[^0].*')
   # close
   #   # TODO: remove me
   #   CalendarPopup(lines)
@@ -200,10 +230,11 @@ for [ii, yyy] in items(test_years)
   echom assert_equal(expected_us_results[ii], actual_result)
 endfor
 var Y  = 2025
-var M = 11
+var M = 08
 var CAL_TYPE = 2
-DisplayMultipleCal(Y, M, CAL_TYPE, true)
+DisplayMultipleCalVert(Y, M, CAL_TYPE, true)
+# messages clear
 # vnew
-# DisplaySingleCal(Y, M, 0, true)
+# echom DisplaySingleCal(Y, M, 0, true)
 # DisplaySingleCal(Y, M, 1, true)
 # DisplaySingleCal(Y, M, 2, true)
