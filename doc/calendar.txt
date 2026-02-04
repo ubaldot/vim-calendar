@@ -48,11 +48,11 @@ MAPPINGS                                        *calendar-mappings*
 calendar.vim makes the following normal mode mappings available:
 
                                                 *calendar-cal*
-<LocalLeader>cal          Brings up the calendar in a vertical split.
+<Leader>cal          Brings up the calendar in a vertical split.
                           Equivalent to calling |:Calendar|.
 
                                                 *calendar-caL*
-<LocalLeader>caL          Brings up the calendar in a horizontal split.
+<Leader>caL          Brings up the calendar in a horizontal split.
                           Equivalent to calling |:CalendarH|.
 
 SETTINGS                                        *calendar-settings*
@@ -93,14 +93,14 @@ Place a "*" or "+" mark after the day.  Acceptable values are "left",
 
                                                 *g:calendar_diary*
 Specify the directory for the diary files.  The default value is $HOME/diary. >
-  g:calendar_diary=$HOME.'/.vim/diary'
+  g:calendar_diary = $HOME .. '/.vim/diary'
 <
 
                                            *g:calendar_diary_list*
 Specify multiple diary configurations. >
   g:calendar_diary_list = [
-       {name: 'Note', path: $HOME.'/note', ext: '.md'},
-       {name: 'Diary', path: $HOME.'/diary', ext: '.diary.md'},
+       {name: 'Note', path: $HOME .. '/note', ext: '.md'},
+       {name: 'Diary', path: $HOME .. '/diary', ext: '.diary.md'},
      ]
 <
 
@@ -236,7 +236,7 @@ next to certain dates.  Implement and set your function as follows: >
 
                                                 *g:calendar_today*
 The function declared in the calendar_today variable is run when the user
-presses Today on the navigation panel.  
+presses Today on the navigation panel.
 Implement and set your function as follows: >
   def g:MyCalToday()
     echo "Today!"
