@@ -21,19 +21,46 @@ Bring up a calendar showing November, 1991 (The month Vim was first released):
 
     :Calendar 1991, 11
 
-The above calendars can alternatively be displayed in a horizontally split
-window:
-
-    :CalendarH
-
-Bring up a full-screen:
-
-    :CalendarT
-
 Fast mappings are provided:
 
 - <kbd>&lt;LocalLeader&gt;cal</kbd>: Vertically-split calendar
-- <kbd>&lt;LocalLeader&gt;caL</kbd>: Horizontally-split calendar
+
+## Configuration (`g:calendar_config`)
+
+All runtime options are configured through one dictionary:
+
+```vim
+g:calendar_config = {
+  position: 'left',
+  cal_type: 'eu',
+  show_week_number: false,
+  number_of_months: 3,
+  holidays: {},
+  search_grep: 'internal',
+  action: 'Diary',
+  diaries_dict: {Diary: {path: '~/diary', resolution: 'day'}},
+  active_diary: 'Diary',
+}
+```
+
+Supported top-level keys:
+
+- `position`: `left`, `right`, `popup`
+- `cal_type`: `eu`, `us`, `work`
+- `show_week_number`: `true` or `false`
+- `number_of_months`: integer `>= 1`
+- `holidays`: dict keyed by `YYYY-MM-DD` (rendered with `!`)
+- `search_grep`: `internal` (`:vimgrep`) or `external` (`:grep`)
+- `action`: function name to call on `<CR>` (defaults to `Diary`)
+- `diaries_dict`: dict of diaries (`{name: {path, resolution}}`)
+- `active_diary`: key from `diaries_dict`
+
+Built-in key bindings are fixed:
+
+- `<CR>` open action, `q`/`<Esc>` close
+- `<Up>/<Down>` previous/next month
+- `<Left>/<Right>` previous/next year
+- `h/j/k/l` move cursor, `t` today, `?` help
 
 For full documentation, install the plugin and run `:help calendar` from
 within Vim.

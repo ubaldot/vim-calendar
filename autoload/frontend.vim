@@ -2,266 +2,807 @@ vim9script
 
 import autoload "./backend.vim"
 
-# Example: Get current date's calendar
-var yy = str2nr(strftime('%Y'))
-var mm = str2nr(strftime('%m'))
-var dd = str2nr(strftime('%d'))
-var Ww = str2nr(strftime('%W'))
-
-var cal_winid = -1
 const cal_bufname = '__Calendar'
-var displayed_months = {}
+const weekdays: dict<list<string>> = {
+  us: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
+  eu: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
+  work: ['Mo', 'Tu', 'We', 'Th', 'Fr'],
+}
+const month_num_to_string = backend.month_n2_to_str
 
-hi def link CalSaturday Special
-hi def link CalSunday   Error
-hi def link CalRuler    StatusLine
-hi def link CalWeeknm   CursorLineNr
-hi def link CalToday    DiffAdd
-hi def link CalHeader   Special
+var cfg_position = 'left'
+var cfg_cal_type = 'eu'
+var cfg_show_week_number = false
+var cfg_number_of_months = 3
+var cfg_holidays: dict<any> = {}
+var cfg_search_grep = 'internal'
+var cfg_diaries: dict<any> = {Diary: {path: '~/diary', resolution: 'day'}}
+var cfg_active_diary = 'Diary'
+var cfg_diary_path = '~/diary'
+var cfg_diary_resolution = 'day'
+var cfg_action = 'Diary'
+var popup_id = -1
+var help_popup_id = -1
+var popup_year = 0
+var popup_month = 0
 
-# def CalendarPopup(calendar: any)
-#    var popup_id = popup_create(calendar, {
-#         title: " Calendar ",
-#         line: 1,
-#         col: 1,
-#         pos: "topleft",
-#         posinvert: false,
-#         filter: HelpMeFilter,
-#         borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
-#         border: [1, 1, 1, 1],
-#         maxheight: &lines - 1,
-#         mapping: 0,
-#         })
-# enddef
-
-# def HelpMeFilter(id: number, key: string): bool
-#   # To handle the keys when release notes popup is visible
-#   # Close
-#   if key ==# 'q' || key ==# "\<esc>"
-#     popup_close(id)
-#   # Move down
-#   elseif ["\<tab>", "\<C-n>", "\<Down>", "\<ScrollWheelDown>"]->index(key) != -1
-#     win_execute(id, "normal! \<c-e>")
-#   # Move up
-#   elseif ["\<S-Tab>", "\<C-p>", "\<Up>", "\<ScrollWheelUp>"]->index(key) != -1
-#     win_execute(id, "normal! \<c-y>")
-#   # Jump down
-#   elseif key == "\<C-f>"
-#     win_execute(id, "normal! \<c-f>")
-#   # Jump up
-#   elseif key == "\<C-b>"
-#     win_execute(id, "normal! \<c-b>")
-#   else
-#     return false
-#   endif
-#   return true
-# enddef
-
-# cal_type 0 = iso, 1 = us, 2 = work days
-def DisplaySingleCal(year: number, month: number, cal_type: number, inc_week: bool): dict<list<list<number>>>
-  # Identify today, check if it is visible
-  var is_today_year_month = strftime('%Y') == printf('%04d', year)
-      && strftime('%m') == printf('%02d', month)
-
-  # Switch options
-  var weekdays = ''
-  var calendar: dict<list<list<number>>>
-  # For highlighting Saturday and Sunday
-  var col_Sat = -1
-  var col_Sun = -1
-
-  if cal_type == 0
-    weekdays = 'Mo Tu We Th Fr Sa Su'
-    calendar = backend.CalendarMonth_iso8601(year, month, inc_week)
-    col_Sat = 17
-    col_Sun = 20
-  elseif cal_type == 1
-    weekdays =  'Su Mo Tu We Th Fr Sa'
-    calendar = backend.ConvertISOtoUS(
-      backend.CalendarMonth_iso8601(year, month, inc_week)
-    )
-    col_Sat = 20
-    col_Sun = 2
-  elseif cal_type == 2
-    weekdays =  'Mo Tu We Th Fr'
-    const [calendar_key, calendar_values] = items(backend.CalendarMonth_iso8601(year, month, inc_week))[0]
-    const calendar_values_short_week = calendar_values
-      ->mapnew((_, val) => add(val[0 : 4], val[7]))
-      ->filter((_, val) => val[0 : 4] != [0, 0, 0, 0, 0] )
-    calendar = {[calendar_key]: calendar_values_short_week}
-    col_Sat = -1
-    col_Sun = -1
-  else
-    echoerr "[vim-calendar]: 'cal_type' shall be 0, 1 or 2"
-  endif
-
-  # Fix head
-  var month_year_str = keys(calendar)[0]
-  var padding = cal_type == 2
-    ? max([2, 13 - len(month_year_str)])
-    : max([5, 15 - len(month_year_str)])
-  var year_month = $"{repeat(' ', padding)}{month_year_str}"
-  appendbufline('%', line('$'), $"{year_month}")
-  matchadd('WarningMsg', year_month)
-
-  # Fix weekdays
-  padding = inc_week ? 4 : 1
-  appendbufline('%', line('$'), $" {weekdays}")
-  matchadd('StatusLine', weekdays)
-
-  # Build the calendar values
-  for line in values(calendar)[0]
-    var firstline = line('$')
-    var line_cleaned: string =
-      line->mapnew((_, val) => printf('%02d', val))
-    ->map((_, val) => substitute(val, '00', '  ', 'g'))
-    ->map((_, val) => substitute(val, '^0', ' ', 'g'))
-    ->map((_, val) => substitute(val, ',', ' ', 'g'))
-    ->join()
-
-    # Write to buffer
-    appendbufline('%', firstline, $" {line_cleaned}")
-
-    # Highlight
-    if cal_type != 2
-      # Higlight Saturdays
-      range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('CalSaturday', [[val, col_Sat, 2]]))
-
-      # Highlight Sundays
-      range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('CalSunday', [[val, col_Sun, 2]]))
-    endif
-
-    # Highlight week
-    if inc_week
-      var col_Week = cal_type == 2 ? 17 : 23
-      range(firstline + 1, line('$'))
-        ->map((_, val) => matchaddpos('CalWeeknm', [[val, col_Week, 2]]))
-    endif
-
-    # Highlight today
-    if is_today_year_month
-      const today = strftime('%d')
-      var line_span = range(firstline + 1, line('$'))
-        ->map((_, val) => $'\%{val}l')->join('\|')
-      matchadd('CalToday', $'{line_span}\zs{today}')
-    endif
-  endfor
-  return calendar
+# Normalize diary resolution to supported values.
+def NormalizeResolution(v: any): string
+  return type(v) == v:t_string && tolower(v) ==# 'month' ? 'month' : 'day'
 enddef
 
-def g:DayUnderCursor()
-  # TO BE TESTED!!!
-  # Find month and year
-  # If the work under cursor
-  const word_under_cursor = expand('<cword>')
-  const displayed_week_nr = true # TODO: REMOVE ME
-  # TODO: check the winwidth
-  const max_col = displayed_week_nr ? winwidth(cal_winid) - 4 : winwidth(cal_winid)
-  if bufname() == cal_bufname && word_under_cursor =~ '\d\{1,2}' && col('.') < max_col
-    const linenr = search('\s*\u\U\+\s\d\+', 'bnW')
-    if linenr != 0
-      var tmp = trim(getline(linenr))
-      # Remove week nr (TODO: only if it is displayed)
-      var days = displayed_months[tmp]->mapnew((_, val) => val[: -2])
-      var found_day = days
-        ->mapnew((idx, val) => index(val, str2nr(word_under_cursor)))
-        ->filter('v:val != -1')
-      if !empty(found_day)
-        var month_year = split(tmp)
-        const day_month_year = insert(month_year, word_under_cursor, 0)
-        echom day_month_year
+# Normalize window placement to supported values.
+def NormalizePos(v: any): string
+  var pos = type(v) == v:t_string ? tolower(v) : 'left'
+  return index(['left', 'right', 'popup'], pos) >= 0 ? pos : 'left'
+enddef
+
+# Normalize calendar type to supported values.
+def NormalizeCalType(v: any): string
+  var t = type(v) == v:t_string ? tolower(v) : 'eu'
+  return index(['eu', 'us', 'work'], t) >= 0 ? t : 'eu'
+enddef
+
+# Initialize script-local runtime state from g:calendar_config.
+def InitVariables()
+  if !exists('g:calendar_config') || type(g:calendar_config) != v:t_dict
+    g:calendar_config = {}
+  endif
+  var cfg = g:calendar_config
+
+  cfg_position = NormalizePos(get(cfg, 'position', 'left'))
+  cfg_cal_type = NormalizeCalType(get(cfg, 'cal_type', 'eu'))
+  cfg_show_week_number = !!get(cfg, 'show_week_number', false)
+  cfg_number_of_months = max([1, get(cfg, 'number_of_months', 3)])
+  var h = get(cfg, 'holidays', {})
+  cfg_holidays = type(h) == v:t_dict ? h : {}
+  cfg_search_grep = tolower(get(cfg, 'search_grep', 'internal'))
+  if cfg_search_grep !=# 'internal' && cfg_search_grep !=# 'external'
+    cfg_search_grep = 'internal'
+  endif
+  cfg_action = get(cfg, 'action', 'Diary')
+
+  var d = get(cfg, 'diaries_dict', {})
+  cfg_diaries = type(d) == v:t_dict && !empty(d) ? d : {Diary: {path: '~/diary', resolution: 'day'}}
+  cfg_active_diary = get(cfg, 'active_diary', '')
+  if empty(cfg_active_diary) || !has_key(cfg_diaries, cfg_active_diary)
+    cfg_active_diary = keys(cfg_diaries)[0]
+    g:calendar_config.active_diary = cfg_active_diary
+  endif
+  var active = cfg_diaries[cfg_active_diary]
+  cfg_diary_path = has_key(active, 'path') ? active.path : '~/diary'
+  cfg_diary_resolution = NormalizeResolution(has_key(active, 'resolution') ? active.resolution : get(cfg, 'diary_resolution', 'day'))
+
+enddef
+
+# Resolve month name from backend map.
+def MonthName(month: number): string
+  return month_num_to_string[printf('%02d', month)]
+enddef
+
+# Return rendered weekday labels based on calendar type.
+def WeekLabels(): list<string>
+  return get(weekdays, cfg_cal_type, weekdays.eu)
+enddef
+
+# Return number of rendered day columns for current calendar type.
+def DayCols(): number
+  return cfg_cal_type ==# 'work' ? 5 : 7
+enddef
+
+# Check if week numbers are enabled.
+def WeekNumberEnabled(): bool
+  return cfg_show_week_number
+enddef
+
+# Get month weeks from backend and adapt shape for cal_type.
+def MonthWeeks(year: number, month: number): list<list<number>>
+  var weeks: list<list<number>> = values(backend.CalendarMonth_iso8601(year, month, WeekNumberEnabled()))[0]
+
+  if cfg_cal_type ==# 'us'
+    var us_rows: list<list<number>> = []
+    var carry_sunday = 0
+    var carry_week = 0
+
+    for row in weeks
+      var us_row = row[0 : 6]
+      var sunday = us_row[6]
+      insert(us_row, carry_sunday, 0)
+      remove(us_row, 7)
+      if WeekNumberEnabled()
+        var wk = len(row) > 7 ? row[7] : 0
+        add(us_row, wk)
+        carry_week = wk
       endif
+      us_rows->add(us_row)
+      carry_sunday = sunday
+    endfor
+
+    if carry_sunday != 0
+      var last_row = [carry_sunday, 0, 0, 0, 0, 0, 0]
+      if WeekNumberEnabled()
+        add(last_row, carry_week + 1)
+      endif
+      us_rows->add(last_row)
     endif
+    weeks = us_rows
   endif
+
+  if cfg_cal_type ==# 'work'
+    var out: list<list<number>> = []
+    for row in weeks
+      var short_row = row[0 : 4]
+      if WeekNumberEnabled()
+        add(short_row, row[7])
+      endif
+      if short_row[0 : 4] != [0, 0, 0, 0, 0]
+        out->add(short_row)
+      endif
+    endfor
+    return out
+  endif
+  return weeks
 enddef
 
-def DisplayMultipleCalVert(
-    year: number,
-    month: number,
-    cal_type: number = 0,
-    inc_week: bool = false,
-    N: number = 3)
-  # TODO: split left or right option
-  # Build empty calendar window
-  const cal_winsize = cal_type == 2 ? 18 : 25
-  if exists('g:calendar') == 0 || get(g:calendar, 'pos', 'left') == 'left'
-    topleft vnew
-  else
-    botright vnew
-  endif
-  cal_winid = win_getid()
-  win_execute(cal_winid, $'vertical resize {cal_winsize}')
-  win_execute(cal_winid, 'setlocal buftype=nofile bufhidden=hide noswapfile nonumber')
-  win_execute(cal_winid, $'file {cal_bufname}')
+# Add month delta to a year-month pair.
+def AddMonths(year: number, month: number, delta: number): list<number>
+  var y = year
+  var m = month + delta
 
-  # Populate calendar window
-  for ii in range(N)
-    var tmp = {}
-    if ii == 0 && month == 1
-      tmp = DisplaySingleCal(year - 1, 12, cal_type, inc_week)
-    else
-      tmp = DisplaySingleCal(year, month - 1 + ii, cal_type, inc_week)
+  while m < 1
+    y -= 1
+    m += 12
+  endwhile
+
+  while m > 12
+    y += 1
+    m -= 12
+  endwhile
+
+  return [y, m]
+enddef
+
+# Check whether a specific date is configured as holiday.
+def IsHoliday(year: number, month: number, day: number): bool
+  return has_key(cfg_holidays, printf('%04d-%02d-%02d', year, month, day))
+enddef
+
+# Build diary file path for current resolution mode.
+def DiaryFilePath(year: number, month: number, day: number): string
+  var year_dir = $"{expand(cfg_diary_path)}/{printf('%04d', year)}"
+  var m = MonthName(month)
+
+  if cfg_diary_resolution ==# 'month'
+    return $"{year_dir}/{m}.md"
+  endif
+  return $"{year_dir}/{m}/{printf('%02d', day)}.md"
+enddef
+
+# Build one month text block and local highlight positions.
+# This is the modern equivalent of the old DisplaySingleCal().
+def BuildMonthLines(year: number, month: number): dict<any>
+  var weeks = MonthWeeks(year, month)
+  var labels = WeekLabels()
+  var day_cols = DayCols()
+  var lines: list<string> = []
+  var today_positions: list<list<number>> = []
+  var sat_positions: list<list<number>> = []
+  var sun_positions: list<list<number>> = []
+  var week_positions: list<list<number>> = []
+  var header = $"{MonthName(month)} {year}"
+  var day_col_start = WeekNumberEnabled() ? 4 : 2
+  var body_width = day_cols * 3 + (WeekNumberEnabled() ? 4 : 1)
+  var pad = max([1, (body_width - len(header)) / 2])
+
+  lines->add($"{repeat(' ', pad)}{header}")
+  lines->add(WeekNumberEnabled() ? $"WK  {join(labels, ' ')}" : $"  {join(labels, ' ')}")
+
+  for row_idx in range(0, len(weeks) - 1)
+    var row = weeks[row_idx]
+    var line = WeekNumberEnabled() ? $"{printf('%2d', len(row) > day_cols ? row[day_cols] : 0)} " : ' '
+    for col_idx in range(0, day_cols - 1)
+      var d = row[col_idx]
+      if d == 0
+        line ..= '   '
+        continue
+      endif
+      var mark = ' '
+      line ..= $"{mark}{printf('%2d', d)}"
+    endfor
+    lines->add(line)
+
+    var lnum = len(lines)
+    for col_idx in range(0, day_cols - 1)
+      var d = row[col_idx]
+      if d == 0
+        continue
+      endif
+      var start_col = day_col_start + col_idx * 3
+      if cfg_cal_type ==# 'eu' && col_idx == 5
+        sat_positions->add([lnum, start_col + 1, 2])
+      elseif cfg_cal_type ==# 'eu' && col_idx == 6
+        sun_positions->add([lnum, start_col + 1, 2])
+      elseif cfg_cal_type ==# 'us' && col_idx == 0
+        sun_positions->add([lnum, start_col + 1, 2])
+      elseif cfg_cal_type ==# 'us' && col_idx == 6
+        sat_positions->add([lnum, start_col + 1, 2])
+      endif
+      if IsHoliday(year, month, d)
+        sun_positions->add([lnum, start_col + 1, 2])
+      endif
+      if printf('%04d%02d%02d', year, month, d) ==# strftime('%Y%m%d')
+        today_positions->add([lnum, start_col + 1, 2])
+      endif
+    endfor
+    if WeekNumberEnabled()
+      week_positions->add([lnum, 1, 2])
     endif
-    extend(displayed_months, tmp)
-    appendbufline('%', line('$'), '')
   endfor
-  win_execute(cal_winid, 'setlocal nomodifiable')
-  messages clear
-  var lines = getline(1, '$')
-  # echo matchstr(expand("<cword>"), '[^0].*')
-  # close
-  #   # TODO: remove me
-  #   CalendarPopup(lines)
+  if WeekNumberEnabled()
+    week_positions->insert([2, 1, 2])
+  endif
+
+  return {
+    lines: lines,
+    today: today_positions,
+    sat: sat_positions,
+    sun: sun_positions,
+    week: week_positions,
+    day_col_start: day_col_start,
+    day_col_end: day_col_start + day_cols * 3 - 1,
+  }
 enddef
 
+# Shift match positions by line/column offsets.
+def ShiftPositions(pos: list<list<number>>, line_off: number, col_off: number): list<list<number>>
+  return pos->mapnew((_, p) => [p[0] + line_off, p[1] + col_off, p[2]])
+enddef
 
+# Compose multi-month vertical view (left/right positions).
+def BuildVerticalComposite(months: list<dict<any>>): dict<any>
+  var out_lines: list<string> = []
+  var blocks: list<dict<any>> = []
+  var today_all: list<list<number>> = []
+  var sat_all: list<list<number>> = []
+  var sun_all: list<list<number>> = []
+  var week_all: list<list<number>> = []
+  var line_cursor = 1
 
-# ===================== TESTS =================================
-# Expected results are for January of different years
-const expected_results = [
-  {'January 2005': [0, 0, 0, 0, 0, 1, 2, 53]},
-  {'January 2006': [0, 0, 0, 0, 0, 0, 1, 52]},
-  {'January 2010': [0, 0, 0, 0, 1, 2, 3, 53]},
-  {'January 2015': [0, 0, 0, 1, 2, 3, 4, 1]},
-  {'January 2016': [0, 0, 0, 0, 1, 2, 3, 53]},
-  {'January 2018': [1, 2, 3, 4, 5, 6, 7, 1]},
-  {'January 2021': [0, 0, 0, 0, 1, 2, 3, 53]},
-  {'January 2022': [0, 0, 0, 0, 0, 1, 2, 52]},
-  {'January 2024': [1, 2, 3, 4, 5, 6, 7, 1]}
-]
-const test_years = [2005, 2006, 2010, 2015, 2016, 2018, 2021, 2022, 2024]
-for [ii, yyy] in items(test_years)
-  var [calendar_key, calendar_values] = items(backend.CalendarMonth_iso8601(yyy, 1, true))[0]
-  var actual_result = {['January ' .. yyy]: calendar_values[0]}
-  echom assert_equal(expected_results[ii], actual_result)
-endfor
+  for m in months
+    var start_line = line_cursor
+    extend(out_lines, m.lines)
+    line_cursor += len(m.lines)
 
-# Start on Sunday
-const expected_us_results = [
-  {'January 2005': [0, 0, 0, 0, 0, 0, 1, 53]},  # Jan 1 is Saturday → week 53 prev. year
-  {'January 2006': [1, 2, 3, 4, 5, 6, 7, 1]},   # Jan 1 is Sunday → week 1
-  {'January 2010': [0, 0, 0, 0, 0, 1, 2, 53]},   # first Sunday Jan 3
-  {'January 2015': [0, 0, 0, 0, 1, 2, 3, 1]},   # first Sunday Jan 4
-  {'January 2016': [0, 0, 0, 0, 0, 1, 2, 53]},   # first Sunday Jan 3
-  {'January 2018': [0, 1, 2, 3, 4, 5, 6, 1]},   # first Sunday Jan 7
-  {'January 2021': [0, 0, 0, 0, 0, 1, 2, 53]},   # first Sunday Jan 3
-  {'January 2022': [0, 0, 0, 0, 0, 0, 1, 52]},   # first Sunday Jan 2
-  {'January 2024': [0, 1, 2, 3, 4, 5, 6, 1]}    # first Sunday Jan 7
-]
+    blocks->add({
+      year: m.year,
+      month: m.month,
+      line_start: start_line + 2,
+      line_end: line_cursor - 1,
+      col_start: 1,
+      col_end: len(m.lines[0]),
+      day_col_start: m.day_col_start,
+      day_col_end: m.day_col_end,
+    })
 
-for [ii, yyy] in items(test_years)
-  var [calendar_key, calendar_values] = items(backend.ConvertISOtoUS(backend.CalendarMonth_iso8601(yyy, 1, true)))[0]
-  var actual_result = {['January ' .. yyy]: calendar_values[0]}
-  echom assert_equal(expected_us_results[ii], actual_result)
-endfor
-var Y  = 2025
-var M = 08
-var CAL_TYPE = 2
-DisplayMultipleCalVert(Y, M, CAL_TYPE, true)
-# messages clear
-# vnew
-# echom DisplaySingleCal(Y, M, 0, true)
-# DisplaySingleCal(Y, M, 1, true)
-# DisplaySingleCal(Y, M, 2, true)
+    extend(today_all, ShiftPositions(m.today, start_line - 1, 0))
+    extend(sat_all, ShiftPositions(m.sat, start_line - 1, 0))
+    extend(sun_all, ShiftPositions(m.sun, start_line - 1, 0))
+    extend(week_all, ShiftPositions(m.week, start_line - 1, 0))
+
+    out_lines->add('')
+    line_cursor += 1
+  endfor
+
+  return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, week: week_all}
+enddef
+
+# Append diary selection section and return diary row mapping.
+def AppendDiarySection(lines: list<string>): dict<string>
+  var diary_rows: dict<string> = {}
+  if len(cfg_diaries) <= 1
+    return diary_rows
+  endif
+
+  lines->add('Calendar')
+  lines->add(repeat('-', max([20, len('Calendar')])))
+
+  for name in keys(cfg_diaries)
+    lines->add(name ==# cfg_active_diary ? $"(*) {name}" : $"( ) {name}")
+    diary_rows[string(len(lines))] = name
+  endfor
+
+  return diary_rows
+enddef
+
+# Build full rendered view for the selected base month.
+# This is the modern equivalent of the old DisplayMultipleCalVert().
+def BuildView(base_year: number, base_month: number, position: string): dict<any>
+  var months: list<dict<any>> = []
+
+  var n_months = position ==# 'popup' ? 1 : cfg_number_of_months
+
+  var start_offset = n_months == 1 ? 0 : -((n_months - 1) / 2)
+
+  for idx in range(0, n_months - 1)
+    var ym = AddMonths(base_year, base_month, start_offset + idx)
+    var m = BuildMonthLines(ym[0], ym[1])
+    m.year = ym[0]
+    m.month = ym[1]
+    months->add(m)
+  endfor
+
+  var composed = BuildVerticalComposite(months)
+  insert(composed.lines, 'Hit "?" for help', 0)
+  insert(composed.lines, '', 1)
+
+  var shifted_blocks: list<dict<any>> = []
+  for b in composed.blocks
+    shifted_blocks->add({
+      year: b.year,
+      month: b.month,
+      line_start: b.line_start + 2,
+      line_end: b.line_end + 2,
+      col_start: b.col_start,
+      col_end: b.col_end,
+      day_col_start: b.day_col_start,
+      day_col_end: b.day_col_end,
+    })
+  endfor
+
+  composed.blocks = shifted_blocks
+  composed.today = ShiftPositions(composed.today, 2, 0)
+  composed.sat = ShiftPositions(composed.sat, 2, 0)
+  composed.sun = ShiftPositions(composed.sun, 2, 0)
+  composed.week = ShiftPositions(composed.week, 2, 0)
+
+  var diary_rows = AppendDiarySection(composed.lines)
+
+  return {
+    lines: composed.lines,
+    blocks: composed.blocks,
+    diary_rows: diary_rows,
+    today: composed.today,
+    sat: composed.sat,
+    sun: composed.sun,
+    week: composed.week,
+  }
+enddef
+
+# Open or reuse calendar buffer window according to target position.
+def OpenCalendarWindow(position: string): number
+
+  var bw = bufnr(cal_bufname)
+  var ww = bw > 0 ? bufwinnr(bw) : -1
+  if ww > 0
+    execute $":{ww}wincmd w"
+    return win_getid()
+  endif
+
+  if position ==# 'left'
+    topleft vnew
+  elseif position ==# 'right'
+    botright vnew
+  else
+    topleft vnew
+  endif
+
+  execute $"file {cal_bufname}"
+  setlocal buftype=nofile bufhidden=delete noswapfile nowrap nolist nomodified
+  if exists('+winfixbuf')
+    setlocal winfixbuf
+  endif
+  setlocal fdc=0 nonu
+  if has('+relativenumber') || exists('+relativenumber')
+    setlocal nornu
+  endif
+
+  b:Calendar = 'Calendar'
+  b:CalendarPos = position
+
+  return win_getid()
+enddef
+
+# Apply syntax/match highlights to the current calendar buffer.
+def ApplyHighlights(view: dict<any>)
+  if exists('w:cal_today') | silent! call matchdelete(w:cal_today) | endif
+  if exists('w:cal_sat') | silent! call matchdelete(w:cal_sat) | endif
+  if exists('w:cal_sun') | silent! call matchdelete(w:cal_sun) | endif
+  if exists('w:cal_week') | silent! call matchdelete(w:cal_week) | endif
+  if exists('w:cal_help') | silent! call matchdelete(w:cal_help) | endif
+  if exists('w:cal_header') | silent! call matchdelete(w:cal_header) | endif
+  if exists('w:cal_currlist') | silent! call matchdelete(w:cal_currlist) | endif
+
+  if !empty(view.today) | w:cal_today = matchaddpos('CalToday', view.today, 40) | endif
+  if !empty(view.sat) | w:cal_sat = matchaddpos('CalSaturday', view.sat, 30) | endif
+  if !empty(view.sun) | w:cal_sun = matchaddpos('CalSunday', view.sun, 30) | endif
+  if !empty(view.week) | w:cal_week = matchaddpos('CalWeeknm', view.week, 35) | endif
+
+  w:cal_help = matchadd('CalHelpHint', '^Hit "?" for help$', 20)
+  w:cal_header = matchadd('CalHeader', '^\s*[A-Za-z]\+\s\+\d\{4}$', 25)
+  w:cal_currlist = matchadd('CalCurrentDiary', '^(\*).*$', 15)
+enddef
+
+# Render calendar view into split window or popup.
+def Render(base_year: number, base_month: number)
+  InitVariables()
+  var position = cfg_position ==# 'popup' ? 'popup' : cfg_position
+  var view = BuildView(base_year, base_month, position)
+  silent! doautocmd User CalendarBeforeShow
+
+  if position ==# 'popup'
+    if popup_id > 0
+      popup_close(popup_id)
+    endif
+    popup_id = popup_create(view.lines, {
+      title: ' Calendar ',
+      pos: 'center',
+      borderchars: ['-', '|', '-', '|', '+', '+', '+', '+'],
+      border: [1, 1, 1, 1],
+      filter: PopupFilter,
+      mapping: 0,
+      drag: 0,
+      scrollbar: 0,
+    })
+    return
+  endif
+
+  var winid = OpenCalendarWindow(position)
+
+  setlocal modifiable
+  deletebufline('%', 1, '$')
+  append(0, view.lines)
+  deletebufline('%', len(view.lines) + 1)
+  setlocal nomodifiable
+
+  var width = max(view.lines->mapnew((_, s) => len(s))) + 2
+  var height = len(view.lines) + 1
+  if position ==# 'left' || position ==# 'right'
+    execute $"vertical resize {min([max([20, width]), &columns - 5])}"
+  else
+    execute $"resize {min([max([8, height]), &lines - 3])}"
+  endif
+
+  b:CalendarBaseYear = base_year
+  b:CalendarBaseMonth = base_month
+  b:CalendarBlocks = view.blocks
+  b:CalendarDiaryRows = view.diary_rows
+
+  CalendarBuildKeymap()
+  ApplyHighlights(view)
+  setlocal filetype=calendar
+  setlocal statusline=%!strftime('%A,\ %Y-%m-%d')
+
+  if !empty(view.today)
+    cursor(view.today[0][0], view.today[0][1])
+  endif
+  win_execute(winid, 'normal! zv')
+enddef
+
+# Compute ISO weekday (1=Mon..7=Sun) for a specific date.
+def WeekdayForDate(year: number, month: number, day: number): number
+  var iso = values(backend.CalendarMonth_iso8601(year, month, false))[0]
+  for row in iso
+    for idx in range(0, 6)
+      if row[idx] == day
+        return idx + 1
+      endif
+    endfor
+  endfor
+  return 0
+enddef
+
+# Resolve the month block under cursor in current rendered view.
+def FindBlockAtCursor(): dict<any>
+  var l = line('.')
+  var c = col('.')
+  for block in get(b:, 'CalendarBlocks', [])
+    if l >= block.line_start && l <= block.line_end && c >= block.col_start && c <= block.col_end
+      return block
+    endif
+  endfor
+  return {}
+enddef
+
+# Handle diary switch when cursor is on a diary selector row.
+def SwitchDiaryAtCursor(): bool
+  var rows = get(b:, 'CalendarDiaryRows', {})
+  var key = string(line('.'))
+  if !has_key(rows, key)
+    return false
+  endif
+
+  var name = rows[key]
+  if !has_key(cfg_diaries, name)
+    return false
+  endif
+
+  g:calendar_config.active_diary = name
+  cfg_active_diary = name
+
+  var d = cfg_diaries[name]
+  cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
+  cfg_diary_resolution = NormalizeResolution(has_key(d, 'resolution') ? d.resolution : 'day')
+
+  var curp = getpos('.')
+
+  Render(b:CalendarBaseYear, b:CalendarBaseMonth)
+
+  setpos('.', curp)
+  return true
+enddef
+
+# Handle calendar navigation actions and re-render.
+def HandleNav(arg: string): bool
+  var y = b:CalendarBaseYear
+  var m = b:CalendarBaseMonth
+
+  if arg ==# 'NextMonth'
+    var ym = AddMonths(y, m, 1)
+    y = ym[0] | m = ym[1]
+  elseif arg ==# 'PrevMonth'
+    var ym = AddMonths(y, m, -1)
+    y = ym[0] | m = ym[1]
+  elseif arg ==# 'NextYear'
+    y += 1
+  elseif arg ==# 'PrevYear'
+    y -= 1
+  elseif arg ==# 'Today'
+    y = str2nr(strftime('%Y'))
+    m = str2nr(strftime('%m'))
+  else
+    return false
+  endif
+
+  var curp = getpos('.')
+
+  Render(y, m)
+
+  setpos('.', curp)
+  return true
+enddef
+
+# Main action dispatcher for Enter and mapped operations.
+def Action(arg: string = '')
+  if arg !=# '' && HandleNav(arg)
+    return
+  endif
+  if SwitchDiaryAtCursor()
+    return
+  endif
+
+  var day_text = matchstr(expand('<cword>'), '^\d\{1,2}$')
+  if empty(day_text)
+    return
+  endif
+
+  var block = FindBlockAtCursor()
+  if empty(block) || col('.') < block.day_col_start || col('.') > block.day_col_end
+    return
+  endif
+
+  var day = str2nr(day_text)
+  var week = WeekdayForDate(block.year, block.month, day)
+
+  # TODO: do we really need this? I.e. dir in the Action function?
+  var dir = index(['left', 'right'], get(b:, 'CalendarPos', 'left')) >= 0 ? 'V' : 'H'
+  var action_name = 'Diary'
+
+  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
+    action_name = cfg_action
+  endif
+
+  call(function(action_name), [day, block.month, block.year, week, dir])
+enddef
+
+# Close split window or popup calendar.
+def Close()
+  if popup_id > 0
+    popup_close(popup_id)
+    popup_id = -1
+    return
+  endif
+  bwipeout!
+enddef
+
+# Create a directory path and report failure.
+def MakeDir(dir: string): number
+  var rc = 0
+  if has('win32')
+    system($"mkdir \"{dir}\"")
+  else
+    system($"mkdir -p {dir}")
+  endif
+
+  rc = v:shell_error
+  if rc != 0
+    confirm($"can't create directory: {dir}", '&OK')
+  endif
+  return rc
+enddef
+
+# Default diary action: open/create markdown diary file for selected date.
+def Diary(day: number, month: number, year: number, week: number, dir: string)
+  if !isdirectory(expand(cfg_diary_path))
+    confirm($"please create diary directory: {cfg_diary_path}", 'OK')
+    return
+  endif
+
+  var year_dir = $"{expand(cfg_diary_path)}/{printf('%04d', year)}"
+  if isdirectory(year_dir) == 0 && MakeDir(year_dir) != 0
+    return
+  endif
+
+  if cfg_diary_resolution ==# 'day'
+    var month_dir = $"{year_dir}/{MonthName(month)}"
+    if isdirectory(month_dir) == 0 && MakeDir(month_dir) != 0
+      return
+    endif
+  endif
+  var file = substitute(DiaryFilePath(year, month, day), ' ', '\\ ', 'g')
+
+  var cur = win_getid()
+
+  silent! wincmd p
+
+  # TODO: when this is needed?
+  if win_getid() == cur || getwinvar(win_getid(), 'Calendar', '') ==# 'Calendar'
+    botright split
+  endif
+
+  execute $"edit {file}"
+  setlocal filetype=markdown
+enddef
+
+# Filter for help popup: close with q or <Esc>.
+def HelpPopupFilter(id: number, key: string): bool
+  if key ==# 'q' || key ==# "\<Esc>"
+    popup_close(id)
+    help_popup_id = -1
+    return true
+  endif
+  return false
+enddef
+
+# Show help popup for calendar key bindings.
+def CalendarHelp()
+  var lines = [
+    'Calendar key bindings',
+    '',
+    '<CR>  open/switch on cursor',
+    '<Up>  previous month',
+    '<Down>  next month',
+    '<Left>  previous year',
+    '<Right>  next year',
+    't  go to today',
+    'q / <Esc>  close',
+    '',
+    'h/j/k/l  move cursor',
+  ]
+  if help_popup_id > 0
+    popup_close(help_popup_id)
+  endif
+  help_popup_id = popup_create(lines, {
+    title: ' Calendar Help ',
+    pos: 'center',
+    border: [1, 1, 1, 1],
+    filter: HelpPopupFilter,
+    mapping: 0,
+  })
+enddef
+
+# Build buffer-local key mappings for calendar interactions.
+def CalendarBuildKeymap()
+  nnoremap <silent> <buffer> q <ScriptCmd>Close()<CR>
+  nnoremap <silent> <buffer> <Esc> <ScriptCmd>Close()<CR>
+  nnoremap <silent> <buffer> <CR> <ScriptCmd>Action()<CR>
+  nnoremap <silent> <buffer> <Down> <ScriptCmd>Action('NextMonth')<CR>
+  nnoremap <silent> <buffer> <Up> <ScriptCmd>Action('PrevMonth')<CR>
+  nnoremap <silent> <buffer> <Right> <ScriptCmd>Action('NextYear')<CR>
+  nnoremap <silent> <buffer> <Left> <ScriptCmd>Action('PrevYear')<CR>
+  nnoremap <silent> <buffer> t <ScriptCmd>Action('Today')<CR>
+  nnoremap <silent> <buffer> ? <ScriptCmd>CalendarHelp()<CR>
+
+enddef
+
+# Popup key filter for navigation and actions.
+def PopupFilter(id: number, key: string): bool
+  if key ==# 'q' || key ==# "\<Esc>"
+    popup_close(id)
+    popup_id = -1
+    return true
+  elseif key ==# "\<Down>"
+    var ym = AddMonths(popup_year, popup_month, 1)
+    popup_year = ym[0] | popup_month = ym[1]
+    Render(popup_year, popup_month)
+    return true
+  elseif key ==# "\<Up>"
+    var ym = AddMonths(popup_year, popup_month, -1)
+    popup_year = ym[0] | popup_month = ym[1]
+    Render(popup_year, popup_month)
+    return true
+  elseif key ==# "\<Right>"
+    popup_year += 1
+    Render(popup_year, popup_month)
+    return true
+  elseif key ==# "\<Left>"
+    popup_year -= 1
+    Render(popup_year, popup_month)
+    return true
+  elseif key ==# "\<CR>"
+    Action()
+    return true
+  elseif key ==# '?'
+    CalendarHelp()
+    return true
+  elseif key ==# 'h' || key ==# 'j' || key ==# 'k' || key ==# 'l'
+    win_execute(id, $'normal! {key}')
+    return true
+  endif
+  return false
+enddef
+
+# Main entrypoint used by :Calendar command.
+export def Show(a2: number = -1, a3: number = -1): string
+  InitVariables()
+  var y = str2nr(strftime('%Y'))
+  var m = str2nr(strftime('%m'))
+
+  if a2 != -1 && a3 == -1
+    y = a2
+  elseif a2 != -1 && a3 != -1
+    y = a2
+    m = a3
+  endif
+
+  if cfg_position ==# 'popup'
+    popup_year = y
+    popup_month = m
+  endif
+
+  Render(y, m)
+
+  return ''
+enddef
+
+# Explicit popup entrypoint.
+export def ShowPopup(a2: number = -1, a3: number = -1)
+  InitVariables()
+
+  var y = str2nr(strftime('%Y'))
+  var m = str2nr(strftime('%m'))
+
+  if a2 != -1 && a3 == -1
+    y = a2
+  elseif a2 != -1 && a3 != -1
+    y = a2
+    m = a3
+  endif
+
+  cfg_position = 'popup'
+  popup_year = y
+  popup_month = m
+
+  Render(y, m)
+enddef
+
+# Search keyword across diary markdown files.
+export def Search(keyword: string)
+  InitVariables()
+
+  if cfg_search_grep ==# 'internal'
+    var pattern = escape(keyword, '/\')
+    execute $"vimgrep /{pattern}/{escape(cfg_diary_path, ' ')}/**/*.md | cw"
+  else
+    execute $"grep! {keyword} {escape(cfg_diary_path, ' ')}/**/*.md"
+    silent cwindow
+  endif
+enddef
+
+hi def link CalSaturday LineNr
+hi def link CalSunday Error
+hi def link CalRuler Normal
+hi def link CalWeeknm WildMenu
+hi def link CalToday DiffDelete
+hi def link CalHeader WarningMsg
+hi def link CalDiaryentDiary Error
+hi def link CalHelpHint Question
