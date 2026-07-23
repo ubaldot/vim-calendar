@@ -875,16 +875,16 @@ def CalendarHelp()
   var lines = [
     'Calendar key bindings',
     '',
+    'h/j/k/l  move cursor',
     '<CR>  open/switch on cursor',
     '<Up>  previous month',
     '<Down>  next month',
     '<Left>  previous year',
     '<Right>  next year',
     't  go to today',
-    'q / <Esc>  close',
+    '<Tab> / <S-Tab>  next/prev diary',
     '',
-    'h/j/k/l  move cursor',
-    '<Tab> / <S-Tab>  next/prev diary (popup)',
+    'q or <Esc>  close',
   ]
   if help_popup_id > 0
     popup_close(help_popup_id)
@@ -975,6 +975,8 @@ def PopupFilter(id: number, key: string): bool
     return true
   elseif key ==# "\<S-Tab>"
     PopupCycleDiary(-1)
+    return true
+  elseif key ==# "\<CursorHold>"
     return true
   elseif key ==# 'h' || key ==# 'j' || key ==# 'k' || key ==# 'l'
     PopupMoveSelection(key)

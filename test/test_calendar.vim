@@ -114,3 +114,44 @@ def g:Test_autocmd_before_show()
   augroup END
   unlet g:test_before_show
 enddef
+
+def g:Test_diary_cycle_split_tab_keys()
+  ResetConfig()
+  g:calendar_config.diaries_dict = {
+    Alpha: {path: '~/my_diary', resolution: 'month'},
+    Beta: {path: '~/my_diary', resolution: 'day'},
+  }
+  g:calendar_config.active_diary = 'Alpha'
+
+  Calendar 2026, 7
+  WaitForAssert(() => assert_equal(2, winnr('$')))
+
+  feedkeys("\<Tab>", 'xt')
+  WaitForAssert(() => assert_equal('Beta', g:calendar_config.active_diary))
+
+  feedkeys("\<S-Tab>", 'xt')
+  WaitForAssert(() => assert_equal('Alpha', g:calendar_config.active_diary))
+
+  execute "normal q"
+enddef
+
+def g:Test_diary_cycle_popup_tab_keys()
+  ResetConfig()
+  g:calendar_config.position = 'popup'
+  g:calendar_config.diaries_dict = {
+    Alpha: {path: '~/my_diary', resolution: 'month'},
+    Beta: {path: '~/my_diary', resolution: 'day'},
+  }
+  g:calendar_config.active_diary = 'Alpha'
+
+  Calendar 2026, 7
+  WaitForAssert(() => assert_true(len(popup_list()) > 0))
+
+  feedkeys("\<Tab>", 'xt')
+  WaitForAssert(() => assert_equal('Beta', g:calendar_config.active_diary))
+
+  feedkeys("\<S-Tab>", 'xt')
+  WaitForAssert(() => assert_equal('Alpha', g:calendar_config.active_diary))
+
+  popup_close(popup_list()[0])
+enddef
