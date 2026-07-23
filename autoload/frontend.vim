@@ -208,6 +208,7 @@ def BuildMonthLines(year: number, month: number): dict<any>
   var today_positions: list<list<number>> = []
   var sat_positions: list<list<number>> = []
   var sun_positions: list<list<number>> = []
+  var holiday_positions: list<list<number>> = []
   var week_positions: list<list<number>> = []
   var header = $"{MonthName(month)} {year}"
   var day_col_start = WeekNumberEnabled() ? 4 : 2
@@ -248,7 +249,7 @@ def BuildMonthLines(year: number, month: number): dict<any>
         sat_positions->add([lnum, start_col + 1, 2])
       endif
       if IsHoliday(year, month, d)
-        sun_positions->add([lnum, start_col + 1, 2])
+        holiday_positions->add([lnum, start_col + 1, 2])
       endif
       if printf('%04d%02d%02d', year, month, d) ==# strftime('%Y%m%d')
         today_positions->add([lnum, start_col + 1, 2])
@@ -267,6 +268,7 @@ def BuildMonthLines(year: number, month: number): dict<any>
     today: today_positions,
     sat: sat_positions,
     sun: sun_positions,
+    holiday: holiday_positions,
     week: week_positions,
     day_col_start: day_col_start,
     day_col_end: day_col_start + day_cols * 3 - 1,
@@ -285,6 +287,7 @@ def BuildVerticalComposite(months: list<dict<any>>): dict<any>
   var today_all: list<list<number>> = []
   var sat_all: list<list<number>> = []
   var sun_all: list<list<number>> = []
+  var holiday_all: list<list<number>> = []
   var week_all: list<list<number>> = []
   var line_cursor = 1
 
@@ -307,13 +310,14 @@ def BuildVerticalComposite(months: list<dict<any>>): dict<any>
     extend(today_all, ShiftPositions(m.today, start_line - 1, 0))
     extend(sat_all, ShiftPositions(m.sat, start_line - 1, 0))
     extend(sun_all, ShiftPositions(m.sun, start_line - 1, 0))
+    extend(holiday_all, ShiftPositions(m.holiday, start_line - 1, 0))
     extend(week_all, ShiftPositions(m.week, start_line - 1, 0))
 
     out_lines->add('')
     line_cursor += 1
   endfor
 
-  return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, week: week_all}
+  return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, holiday: holiday_all, week: week_all}
 enddef
 
 # Append diary selection section and return diary row mapping.
@@ -373,6 +377,7 @@ def BuildView(base_year: number, base_month: number): dict<any>
   composed.today = ShiftPositions(composed.today, 2, 0)
   composed.sat = ShiftPositions(composed.sat, 2, 0)
   composed.sun = ShiftPositions(composed.sun, 2, 0)
+  composed.holiday = ShiftPositions(composed.holiday, 2, 0)
   composed.week = ShiftPositions(composed.week, 2, 0)
 
   var diary_rows = AppendDiarySection(composed.lines)
@@ -384,6 +389,7 @@ def BuildView(base_year: number, base_month: number): dict<any>
     today: composed.today,
     sat: composed.sat,
     sun: composed.sun,
+    holiday: composed.holiday,
     week: composed.week,
   }
 enddef
@@ -419,12 +425,14 @@ def OpenCalendarWindow(): number
   return win_getid()
 enddef
 
-# Apply syntax/match highlights to the current calendar buffer.
+# Apply match highlights to the current calendar buffer.
 def ApplyHighlights(view: dict<any>)
   if exists('w:cal_today') | silent! matchdelete(w:cal_today) | endif
   if exists('w:cal_sat') | silent! matchdelete(w:cal_sat) | endif
   if exists('w:cal_sun') | silent! matchdelete(w:cal_sun) | endif
+  if exists('w:cal_holiday') | silent! matchdelete(w:cal_holiday) | endif
   if exists('w:cal_week') | silent! matchdelete(w:cal_week) | endif
+  if exists('w:cal_weekdays') | silent! matchdelete(w:cal_weekdays) | endif
   if exists('w:cal_help') | silent! matchdelete(w:cal_help) | endif
   if exists('w:cal_header') | silent! matchdelete(w:cal_header) | endif
   if exists('w:cal_currlist') | silent! matchdelete(w:cal_currlist) | endif
@@ -432,11 +440,13 @@ def ApplyHighlights(view: dict<any>)
   if !empty(view.today) | w:cal_today = matchaddpos('CalToday', view.today, 40) | endif
   if !empty(view.sat) | w:cal_sat = matchaddpos('CalSaturday', view.sat, 30) | endif
   if !empty(view.sun) | w:cal_sun = matchaddpos('CalSunday', view.sun, 30) | endif
+  if !empty(view.holiday) | w:cal_holiday = matchaddpos('CalHoliday', view.holiday, 32) | endif
   if !empty(view.week) | w:cal_week = matchaddpos('CalWeeknm', view.week, 35) | endif
 
   w:cal_help = matchadd('CalHelpHint', '^Hit "?" for help$', 20)
   w:cal_header = matchadd('CalHeader', '^\s*[A-Za-z]\+\s\+\d\{4}$', 25)
   w:cal_currlist = matchadd('CalCurrList', '^(\*).*$', 15)
+  w:cal_weekdays = matchadd('CalWeekdays', '^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$', 22)
 enddef
 
 # Render calendar view into split window or popup.
@@ -489,7 +499,6 @@ def RenderView(base_year: number, base_month: number)
 
   CalendarBuildKeymap()
   ApplyHighlights(view)
-  setlocal filetype=calendar
   setlocal statusline=%!strftime('%A,\ %Y-%m-%d')
 
   if !empty(view.today)
@@ -799,11 +808,12 @@ export def Search(keyword: string)
 enddef
 
 hi def link CalSaturday LineNr
-hi def link CalSunday WarningMsg
+hi def link CalSunday Error
 hi def link CalRuler Normal
+hi def link CalWeekdays WarningMsg
 hi def link CalWeeknm Visual
 hi def link CalToday Visual
 hi def link CalHeader WarningMsg
-hi def link CalHoliday WarningMsg
+hi def link CalHoliday Error
 hi def link CalCurrList Error
 hi def link CalHelpHint Question
