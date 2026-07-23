@@ -1,6 +1,7 @@
-Test_calendarH_basic(): pass
-Test_calendarVR_basic(): pass
+Test_action_from_config(): pass
+Test_autocmd_before_show(): pass
+Test_calendar_arguments(): pass
 Test_calendar_basic(): pass
-Test_config(): pass
-Test_hooks(): pass
-Test_syntax_highlight(): pass
+Test_calendar_position_popup(): pass
+Test_calendar_position_right(): pass
+Test_show_week_numbers_column(): pass

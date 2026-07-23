@@ -114,7 +114,11 @@ Supported keys in |g:calendar_config|:
                                 markdown file to each day of the calendar;
                                 Resolution 'month' means that you can link a
                                 markdown file to each month of the calendar.
-                                Default: {}
+                                If path is omitted, it defaults to '~/diary'.
+                                Directory creation is not automatic: you must
+                                create the required diary directories manually.
+                                Default: {Diary: {path: '~/diary',
+                                          resolution: 'day'}}
 
               active_diary      Diary name present in diaries_dict key
                                 Default: ''

@@ -55,6 +55,10 @@ Supported top-level keys:
 - `diaries_dict`: dict of diaries (`{name: {path, resolution}}`)
 - `active_diary`: key from `diaries_dict`
 
+If a diary `path` is omitted, it defaults to `~/diary`. The plugin does not
+create diary directories automatically; create them manually before using
+`Diary` actions.
+
 Built-in key bindings are fixed:
 
 - `<CR>` open action, `q`/`<Esc>` close

@@ -44,34 +44,47 @@ def NormalizeCalType(v: any): string
 enddef
 
 # Initialize script-local runtime state from g:calendar_config.
-def InitVariables()
-  if !exists('g:calendar_config') || type(g:calendar_config) != v:t_dict
+def InitVariables(): bool
+
+  if !exists('g:calendar_config')
     g:calendar_config = {}
+  elseif type(g:calendar_config) != v:t_dict
+    echoerr "'g:calendar_config' must be a dict"
+    return false
   endif
+
   var cfg = g:calendar_config
 
   cfg_position = NormalizePos(get(cfg, 'position', 'left'))
   cfg_cal_type = NormalizeCalType(get(cfg, 'cal_type', 'eu'))
   cfg_show_week_number = !!get(cfg, 'show_week_number', false)
   cfg_number_of_months = max([1, get(cfg, 'number_of_months', 3)])
+
   var h = get(cfg, 'holidays', {})
   cfg_holidays = type(h) == v:t_dict ? h : {}
+
   cfg_search_grep = tolower(get(cfg, 'search_grep', 'internal'))
   if cfg_search_grep !=# 'internal' && cfg_search_grep !=# 'external'
     cfg_search_grep = 'internal'
   endif
+
   cfg_action = get(cfg, 'action', 'Diary')
 
   var d = get(cfg, 'diaries_dict', {})
   cfg_diaries = type(d) == v:t_dict && !empty(d) ? d : {Diary: {path: '~/diary', resolution: 'day'}}
+
   cfg_active_diary = get(cfg, 'active_diary', '')
   if empty(cfg_active_diary) || !has_key(cfg_diaries, cfg_active_diary)
     cfg_active_diary = keys(cfg_diaries)[0]
     g:calendar_config.active_diary = cfg_active_diary
   endif
+
   var active = cfg_diaries[cfg_active_diary]
+
   cfg_diary_path = has_key(active, 'path') ? active.path : '~/diary'
   cfg_diary_resolution = NormalizeResolution(has_key(active, 'resolution') ? active.resolution : get(cfg, 'diary_resolution', 'day'))
+
+  return true
 
 enddef
 
@@ -144,7 +157,9 @@ def MonthWeeks(year: number, month: number): list<list<number>>
   return weeks
 enddef
 
-# Add month delta to a year-month pair.
+# Shift a (year, month) pair by a signed month delta.
+# Example: AddMonths(2026, 1, -1) => [2025, 12], AddMonths(2026, 12, 1) => [2027, 1].
+# This keeps month within [1..12] and carries overflow/underflow into the year.
 def AddMonths(year: number, month: number, delta: number): list<number>
   var y = year
   var m = month + delta
@@ -316,10 +331,10 @@ enddef
 
 # Build full rendered view for the selected base month.
 # This is the modern equivalent of the old DisplayMultipleCalVert().
-def BuildView(base_year: number, base_month: number, position: string): dict<any>
+def BuildView(base_year: number, base_month: number): dict<any>
   var months: list<dict<any>> = []
 
-  var n_months = position ==# 'popup' ? 1 : cfg_number_of_months
+  var n_months = cfg_position ==# 'popup' ? 1 : cfg_number_of_months
 
   var start_offset = n_months == 1 ? 0 : -((n_months - 1) / 2)
 
@@ -369,7 +384,7 @@ def BuildView(base_year: number, base_month: number, position: string): dict<any
 enddef
 
 # Open or reuse calendar buffer window according to target position.
-def OpenCalendarWindow(position: string): number
+def OpenCalendarWindow(): number
 
   var bw = bufnr(cal_bufname)
   var ww = bw > 0 ? bufwinnr(bw) : -1
@@ -378,9 +393,9 @@ def OpenCalendarWindow(position: string): number
     return win_getid()
   endif
 
-  if position ==# 'left'
+  if cfg_position ==# 'left'
     topleft vnew
-  elseif position ==# 'right'
+  elseif cfg_position ==# 'right'
     botright vnew
   else
     topleft vnew
@@ -396,21 +411,18 @@ def OpenCalendarWindow(position: string): number
     setlocal nornu
   endif
 
-  b:Calendar = 'Calendar'
-  b:CalendarPos = position
-
   return win_getid()
 enddef
 
 # Apply syntax/match highlights to the current calendar buffer.
 def ApplyHighlights(view: dict<any>)
-  if exists('w:cal_today') | silent! call matchdelete(w:cal_today) | endif
-  if exists('w:cal_sat') | silent! call matchdelete(w:cal_sat) | endif
-  if exists('w:cal_sun') | silent! call matchdelete(w:cal_sun) | endif
-  if exists('w:cal_week') | silent! call matchdelete(w:cal_week) | endif
-  if exists('w:cal_help') | silent! call matchdelete(w:cal_help) | endif
-  if exists('w:cal_header') | silent! call matchdelete(w:cal_header) | endif
-  if exists('w:cal_currlist') | silent! call matchdelete(w:cal_currlist) | endif
+  if exists('w:cal_today') | silent! matchdelete(w:cal_today) | endif
+  if exists('w:cal_sat') | silent! matchdelete(w:cal_sat) | endif
+  if exists('w:cal_sun') | silent! matchdelete(w:cal_sun) | endif
+  if exists('w:cal_week') | silent! matchdelete(w:cal_week) | endif
+  if exists('w:cal_help') | silent! matchdelete(w:cal_help) | endif
+  if exists('w:cal_header') | silent! matchdelete(w:cal_header) | endif
+  if exists('w:cal_currlist') | silent! matchdelete(w:cal_currlist) | endif
 
   if !empty(view.today) | w:cal_today = matchaddpos('CalToday', view.today, 40) | endif
   if !empty(view.sat) | w:cal_sat = matchaddpos('CalSaturday', view.sat, 30) | endif
@@ -419,24 +431,26 @@ def ApplyHighlights(view: dict<any>)
 
   w:cal_help = matchadd('CalHelpHint', '^Hit "?" for help$', 20)
   w:cal_header = matchadd('CalHeader', '^\s*[A-Za-z]\+\s\+\d\{4}$', 25)
-  w:cal_currlist = matchadd('CalCurrentDiary', '^(\*).*$', 15)
+  w:cal_currlist = matchadd('CalCurrList', '^(\*).*$', 15)
 enddef
 
 # Render calendar view into split window or popup.
-def Render(base_year: number, base_month: number)
-  InitVariables()
-  var position = cfg_position ==# 'popup' ? 'popup' : cfg_position
-  var view = BuildView(base_year, base_month, position)
-  silent! doautocmd User CalendarBeforeShow
+def RenderView(base_year: number, base_month: number)
 
-  if position ==# 'popup'
+  var view = BuildView(base_year, base_month)
+
+  if cfg_position ==# 'popup'
     if popup_id > 0
       popup_close(popup_id)
     endif
+
+    popup_year = base_year
+    popup_month = base_month
+
     popup_id = popup_create(view.lines, {
       title: ' Calendar ',
       pos: 'center',
-      borderchars: ['-', '|', '-', '|', '+', '+', '+', '+'],
+      borderchars:  ['─', '│', '─', '│', '├', '┤', '╯', '╰'],
       border: [1, 1, 1, 1],
       filter: PopupFilter,
       mapping: 0,
@@ -446,7 +460,8 @@ def Render(base_year: number, base_month: number)
     return
   endif
 
-  var winid = OpenCalendarWindow(position)
+  silent! doautocmd User CalendarBeforeShow
+  var winid = OpenCalendarWindow()
 
   setlocal modifiable
   deletebufline('%', 1, '$')
@@ -456,7 +471,7 @@ def Render(base_year: number, base_month: number)
 
   var width = max(view.lines->mapnew((_, s) => len(s))) + 2
   var height = len(view.lines) + 1
-  if position ==# 'left' || position ==# 'right'
+  if cfg_position ==# 'left' || cfg_position ==# 'right'
     execute $"vertical resize {min([max([20, width]), &columns - 5])}"
   else
     execute $"resize {min([max([8, height]), &lines - 3])}"
@@ -525,14 +540,14 @@ def SwitchDiaryAtCursor(): bool
 
   var curp = getpos('.')
 
-  Render(b:CalendarBaseYear, b:CalendarBaseMonth)
+  RenderView(b:CalendarBaseYear, b:CalendarBaseMonth)
 
   setpos('.', curp)
   return true
 enddef
 
 # Handle calendar navigation actions and re-render.
-def HandleNav(arg: string): bool
+def HandleNavigation(arg: string): bool
   var y = b:CalendarBaseYear
   var m = b:CalendarBaseMonth
 
@@ -555,7 +570,7 @@ def HandleNav(arg: string): bool
 
   var curp = getpos('.')
 
-  Render(y, m)
+  RenderView(y, m)
 
   setpos('.', curp)
   return true
@@ -563,7 +578,7 @@ enddef
 
 # Main action dispatcher for Enter and mapped operations.
 def Action(arg: string = '')
-  if arg !=# '' && HandleNav(arg)
+  if arg !=# '' && HandleNavigation(arg)
     return
   endif
   if SwitchDiaryAtCursor()
@@ -583,8 +598,7 @@ def Action(arg: string = '')
   var day = str2nr(day_text)
   var week = WeekdayForDate(block.year, block.month, day)
 
-  # TODO: do we really need this? I.e. dir in the Action function?
-  var dir = index(['left', 'right'], get(b:, 'CalendarPos', 'left')) >= 0 ? 'V' : 'H'
+  var dir = cfg_position ==# 'popup' ? 'P' : 'V'
   var action_name = 'Diary'
 
   if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
@@ -604,22 +618,6 @@ def Close()
   bwipeout!
 enddef
 
-# Create a directory path and report failure.
-def MakeDir(dir: string): number
-  var rc = 0
-  if has('win32')
-    system($"mkdir \"{dir}\"")
-  else
-    system($"mkdir -p {dir}")
-  endif
-
-  rc = v:shell_error
-  if rc != 0
-    confirm($"can't create directory: {dir}", '&OK')
-  endif
-  return rc
-enddef
-
 # Default diary action: open/create markdown diary file for selected date.
 def Diary(day: number, month: number, year: number, week: number, dir: string)
   if !isdirectory(expand(cfg_diary_path))
@@ -628,13 +626,15 @@ def Diary(day: number, month: number, year: number, week: number, dir: string)
   endif
 
   var year_dir = $"{expand(cfg_diary_path)}/{printf('%04d', year)}"
-  if isdirectory(year_dir) == 0 && MakeDir(year_dir) != 0
+  if isdirectory(year_dir) == 0
+    confirm($"please create diary directory: {year_dir}", 'OK')
     return
   endif
 
   if cfg_diary_resolution ==# 'day'
     var month_dir = $"{year_dir}/{MonthName(month)}"
-    if isdirectory(month_dir) == 0 && MakeDir(month_dir) != 0
+    if isdirectory(month_dir) == 0
+      confirm($"please create diary directory: {month_dir}", 'OK')
       return
     endif
   endif
@@ -644,8 +644,7 @@ def Diary(day: number, month: number, year: number, week: number, dir: string)
 
   silent! wincmd p
 
-  # TODO: when this is needed?
-  if win_getid() == cur || getwinvar(win_getid(), 'Calendar', '') ==# 'Calendar'
+  if win_getid() == cur
     botright split
   endif
 
@@ -713,20 +712,20 @@ def PopupFilter(id: number, key: string): bool
   elseif key ==# "\<Down>"
     var ym = AddMonths(popup_year, popup_month, 1)
     popup_year = ym[0] | popup_month = ym[1]
-    Render(popup_year, popup_month)
+    RenderView(popup_year, popup_month)
     return true
   elseif key ==# "\<Up>"
     var ym = AddMonths(popup_year, popup_month, -1)
     popup_year = ym[0] | popup_month = ym[1]
-    Render(popup_year, popup_month)
+    RenderView(popup_year, popup_month)
     return true
   elseif key ==# "\<Right>"
     popup_year += 1
-    Render(popup_year, popup_month)
+    RenderView(popup_year, popup_month)
     return true
   elseif key ==# "\<Left>"
     popup_year -= 1
-    Render(popup_year, popup_month)
+    RenderView(popup_year, popup_month)
     return true
   elseif key ==# "\<CR>"
     Action()
@@ -742,52 +741,27 @@ def PopupFilter(id: number, key: string): bool
 enddef
 
 # Main entrypoint used by :Calendar command.
-export def Show(a2: number = -1, a3: number = -1): string
-  InitVariables()
-  var y = str2nr(strftime('%Y'))
-  var m = str2nr(strftime('%m'))
+export def Show(year: number = -1, month: number = -1): string
 
-  if a2 != -1 && a3 == -1
-    y = a2
-  elseif a2 != -1 && a3 != -1
-    y = a2
-    m = a3
+  if !InitVariables()
+    return ''
   endif
 
-  if cfg_position ==# 'popup'
-    popup_year = y
-    popup_month = m
-  endif
+  # Process :Calendar arguments
+  var y = year == -1 ? str2nr(strftime('%Y')) : year
+  var m = month == -1 ? str2nr(strftime('%m')) : month
 
-  Render(y, m)
+  # Actually render the calendar
+  RenderView(y, m)
 
   return ''
 enddef
 
-# Explicit popup entrypoint.
-export def ShowPopup(a2: number = -1, a3: number = -1)
-  InitVariables()
-
-  var y = str2nr(strftime('%Y'))
-  var m = str2nr(strftime('%m'))
-
-  if a2 != -1 && a3 == -1
-    y = a2
-  elseif a2 != -1 && a3 != -1
-    y = a2
-    m = a3
-  endif
-
-  cfg_position = 'popup'
-  popup_year = y
-  popup_month = m
-
-  Render(y, m)
-enddef
-
 # Search keyword across diary markdown files.
 export def Search(keyword: string)
-  InitVariables()
+  if !InitVariables()
+    return
+  endif
 
   if cfg_search_grep ==# 'internal'
     var pattern = escape(keyword, '/\')
@@ -799,10 +773,11 @@ export def Search(keyword: string)
 enddef
 
 hi def link CalSaturday LineNr
-hi def link CalSunday Error
+hi def link CalSunday WarningMsg
 hi def link CalRuler Normal
-hi def link CalWeeknm WildMenu
-hi def link CalToday DiffDelete
+hi def link CalWeeknm Visual
+hi def link CalToday Visual
 hi def link CalHeader WarningMsg
-hi def link CalDiaryentDiary Error
+hi def link CalHoliday WarningMsg
+hi def link CalCurrList Error
 hi def link CalHelpHint Question
