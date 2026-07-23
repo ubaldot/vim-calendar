@@ -15,4 +15,4 @@ g:loaded_calendar = true
 import autoload "../autoload/frontend.vim"
 
 command! -nargs=* Calendar  frontend.Show(<args>)
-command! -nargs=* CalendarSearch frontend.Search("<args>")
+command! -nargs=* CalendarSearch frontend.Search(<f-args>)

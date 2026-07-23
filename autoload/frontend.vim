@@ -442,7 +442,7 @@ def OpenCalendarWindow(): number
   endif
 
   execute $"file {cal_bufname}"
-  setlocal buftype=nofile bufhidden=delete noswapfile nowrap nolist nomodified
+  setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified
   if exists('+winfixbuf')
     setlocal winfixbuf
   endif
@@ -1003,17 +1003,20 @@ export def Show(year: number = -1, month: number = -1): string
 enddef
 
 # Search keyword across diary markdown files.
-export def Search(keyword: string)
+export def Search(keyword: string, year: string = '')
 
   if !InitVariables()
     return
   endif
 
+  var search_year = empty(year) ? strftime("%Y") : year
+
   if cfg_search_grep ==# 'internal'
     var pattern = escape(keyword, '/\')
-    execute $"vimgrep /{pattern}/{escape(cfg_diary_path, ' ')}/**/*.md"
+    echom $"vimgrep /{pattern}/{escape(cfg_diary_path, ' ')}/{search_year}/**/*.md"
+    execute $"vimgrep /{pattern}/{escape(cfg_diary_path, ' ')}/{search_year}/**/*.md"
   else
-    execute $"grep! {keyword} {escape(cfg_diary_path, ' ')}/**/*.md"
+    execute $"grep! {keyword} {escape(cfg_diary_path, ' ')}/{search_year}/**/*.md"
   endif
 
   silent cwindow

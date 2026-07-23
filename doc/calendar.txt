@@ -41,7 +41,11 @@ vim-calendar makes the following commands available:
                            - two arguments: year and month
 
                                             *calendar-:CalendarSearch*
-:CalendarSearch [keyword]  Search keyword in current calendar diary book.
+:CalendarSearch [keyword, [year]]
+
+                            Search keyword in current calendar diary book.
+                            If year is passed, it limits the search
+                            to that specific year.
 
 ==============================================================================
 MAPPINGS                                        *calendar-mappings*
