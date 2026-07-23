@@ -26,6 +26,8 @@ var popup_id = -1
 var help_popup_id = -1
 var popup_year = 0
 var popup_month = 0
+var popup_day_cells: list<dict<any>> = []
+var popup_day_index = -1
 var state_base_year = 0
 var state_base_month = 0
 var state_blocks: list<dict<any>> = []
@@ -210,6 +212,7 @@ def BuildMonthLines(year: number, month: number): dict<any>
   var sun_positions: list<list<number>> = []
   var holiday_positions: list<list<number>> = []
   var week_positions: list<list<number>> = []
+  var day_cells: list<dict<any>> = []
   var header = $"{MonthName(month)} {year}"
   var day_col_start = WeekNumberEnabled() ? 4 : 2
   var body_width = day_cols * 3 + (WeekNumberEnabled() ? 4 : 1)
@@ -239,6 +242,13 @@ def BuildMonthLines(year: number, month: number): dict<any>
         continue
       endif
       var start_col = day_col_start + col_idx * 3
+      day_cells->add({
+        day: d,
+        row: row_idx,
+        col: col_idx,
+        line: lnum,
+        colpos: start_col + 1,
+      })
       if cfg_cal_type ==# 'eu' && col_idx == 5
         sat_positions->add([lnum, start_col + 1, 2])
       elseif cfg_cal_type ==# 'eu' && col_idx == 6
@@ -270,6 +280,7 @@ def BuildMonthLines(year: number, month: number): dict<any>
     sun: sun_positions,
     holiday: holiday_positions,
     week: week_positions,
+    cells: day_cells,
     day_col_start: day_col_start,
     day_col_end: day_col_start + day_cols * 3 - 1,
   }
@@ -289,6 +300,7 @@ def BuildVerticalComposite(months: list<dict<any>>): dict<any>
   var sun_all: list<list<number>> = []
   var holiday_all: list<list<number>> = []
   var week_all: list<list<number>> = []
+  var cells_all: list<dict<any>> = []
   var line_cursor = 1
 
   for m in months
@@ -312,12 +324,21 @@ def BuildVerticalComposite(months: list<dict<any>>): dict<any>
     extend(sun_all, ShiftPositions(m.sun, start_line - 1, 0))
     extend(holiday_all, ShiftPositions(m.holiday, start_line - 1, 0))
     extend(week_all, ShiftPositions(m.week, start_line - 1, 0))
+    for c in m.cells
+      cells_all->add({
+        day: c.day,
+        row: c.row,
+        col: c.col,
+        line: c.line + start_line - 1,
+        colpos: c.colpos,
+      })
+    endfor
 
     out_lines->add('')
     line_cursor += 1
   endfor
 
-  return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, holiday: holiday_all, week: week_all}
+  return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, holiday: holiday_all, week: week_all, cells: cells_all}
 enddef
 
 # Append diary selection section and return diary row mapping.
@@ -379,6 +400,13 @@ def BuildView(base_year: number, base_month: number): dict<any>
   composed.sun = ShiftPositions(composed.sun, 2, 0)
   composed.holiday = ShiftPositions(composed.holiday, 2, 0)
   composed.week = ShiftPositions(composed.week, 2, 0)
+  composed.cells = composed.cells->mapnew((_, c) => ({
+    day: c.day,
+    row: c.row,
+    col: c.col,
+    line: c.line + 2,
+    colpos: c.colpos,
+  }))
 
   var diary_rows = AppendDiarySection(composed.lines)
 
@@ -391,6 +419,7 @@ def BuildView(base_year: number, base_month: number): dict<any>
     sun: composed.sun,
     holiday: composed.holiday,
     week: composed.week,
+    cells: composed.cells,
   }
 enddef
 
@@ -474,6 +503,109 @@ def ApplyPopupHighlights(winid: number, view: dict<any>)
   win_execute(winid, 'call matchadd(''CalWeekdays'', ''^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$'', 22)')
 enddef
 
+def PopupSetSelectedDay(index: number)
+  if popup_id <= 0 || empty(popup_day_cells)
+    return
+  endif
+  var idx = min([max([0, index]), len(popup_day_cells) - 1])
+  popup_day_index = idx
+  var c = popup_day_cells[idx]
+  var pos = [[c.line, c.colpos, 2]]
+  win_execute(popup_id, "if getwinvar(win_getid(), 'cal_popup_day', 0) > 0 | call matchdelete(getwinvar(win_getid(), 'cal_popup_day')) | call setwinvar(win_getid(), 'cal_popup_day', 0) | endif")
+  win_execute(popup_id, $"call setwinvar(win_getid(), 'cal_popup_day', matchaddpos('CalPopupSelection', {string(pos)}, 50))")
+  win_execute(popup_id, $"call cursor({c.line}, {c.colpos})")
+enddef
+
+def PopupInitSelection(view: dict<any>)
+  popup_day_cells = get(view, 'cells', [])
+  popup_day_index = -1
+  if empty(popup_day_cells)
+    return
+  endif
+  var target_idx = 0
+  if popup_year == str2nr(strftime('%Y')) && popup_month == str2nr(strftime('%m'))
+    var today = str2nr(strftime('%d'))
+    for i in range(0, len(popup_day_cells) - 1)
+      if popup_day_cells[i].day == today
+        target_idx = i
+        break
+      endif
+    endfor
+  endif
+  PopupSetSelectedDay(target_idx)
+enddef
+
+def PopupMoveSelection(key: string)
+  if empty(popup_day_cells) || popup_day_index < 0
+    return
+  endif
+  var cur = popup_day_cells[popup_day_index]
+  var next_idx = popup_day_index
+
+  if key ==# 'h'
+    next_idx = max([0, popup_day_index - 1])
+  elseif key ==# 'l'
+    next_idx = min([len(popup_day_cells) - 1, popup_day_index + 1])
+  elseif key ==# 'j' || key ==# 'k'
+    var target_row = key ==# 'j' ? cur.row + 1 : cur.row - 1
+    var best_idx = -1
+    var best_dist = 999
+    for i in range(0, len(popup_day_cells) - 1)
+      var c = popup_day_cells[i]
+      if c.row != target_row
+        continue
+      endif
+      var dist = abs(c.col - cur.col)
+      if best_idx < 0 || dist < best_dist
+        best_idx = i
+        best_dist = dist
+      endif
+    endfor
+    if best_idx >= 0
+      next_idx = best_idx
+    endif
+  else
+    return
+  endif
+
+  PopupSetSelectedDay(next_idx)
+enddef
+
+def PopupCycleDiary(step: number): bool
+  if len(cfg_diaries) <= 1
+    return false
+  endif
+  var names = keys(cfg_diaries)
+  var idx = index(names, cfg_active_diary)
+  if idx < 0
+    idx = 0
+  endif
+  idx = (idx + step + len(names)) % len(names)
+  if !ActivateDiary(names[idx])
+    return false
+  endif
+  if cfg_position ==# 'popup'
+    RenderView(popup_year, popup_month)
+  else
+    RenderView(state_base_year, state_base_month)
+  endif
+  return true
+enddef
+
+def PopupOpenSelectedDay(): bool
+  if popup_day_index < 0 || popup_day_index >= len(popup_day_cells)
+    return false
+  endif
+  var day = popup_day_cells[popup_day_index].day
+  var week = WeekdayForDate(popup_year, popup_month, day)
+  var action_name = 'OpenDiaryPage'
+  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
+    action_name = cfg_action
+  endif
+  call(function(action_name), [day, popup_month, popup_year, week])
+  return true
+enddef
+
 # Render calendar view into split window or popup.
 def RenderView(base_year: number, base_month: number)
 
@@ -502,6 +634,7 @@ def RenderView(base_year: number, base_month: number)
     state_blocks = view.blocks
     state_diary_rows = view.diary_rows
     ApplyPopupHighlights(popup_id, view)
+    PopupInitSelection(view)
     return
   endif
 
@@ -562,6 +695,18 @@ def FindBlockAtCursor(): dict<any>
   return {}
 enddef
 
+def ActivateDiary(name: string): bool
+  if !has_key(cfg_diaries, name)
+    return false
+  endif
+  g:calendar_config.active_diary = name
+  cfg_active_diary = name
+  var d = cfg_diaries[name]
+  cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
+  cfg_diary_resolution = NormalizeResolution(has_key(d, 'resolution') ? d.resolution : 'day')
+  return true
+enddef
+
 # Handle diary switch when cursor is on a diary selector row, i.e. when on
 # the following section
 #
@@ -582,12 +727,9 @@ def SwitchDiaryAtCursor(): bool
     return false
   endif
 
-  g:calendar_config.active_diary = name
-  cfg_active_diary = name
-
-  var d = cfg_diaries[name]
-  cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
-  cfg_diary_resolution = NormalizeResolution(has_key(d, 'resolution') ? d.resolution : 'day')
+  if !ActivateDiary(name)
+    return false
+  endif
 
   var curp = getpos('.')
 
@@ -615,6 +757,12 @@ def HandleNavigation(arg: string): bool
   elseif arg ==# 'Today'
     y = str2nr(strftime('%Y'))
     m = str2nr(strftime('%m'))
+  elseif arg ==# 'NextDiary'
+    PopupCycleDiary(1)
+    return true
+  elseif arg ==# 'PrevDiary'
+    PopupCycleDiary(-1)
+    return true
   else
     return false
   endif
@@ -736,6 +884,7 @@ def CalendarHelp()
     'q / <Esc>  close',
     '',
     'h/j/k/l  move cursor',
+    '<Tab> / <S-Tab>  next/prev diary (popup)',
   ]
   if help_popup_id > 0
     popup_close(help_popup_id)
@@ -777,6 +926,8 @@ def CalendarBuildKeymap()
   nnoremap <silent> <buffer> <Right> <ScriptCmd>Action('NextYear')<CR>
   nnoremap <silent> <buffer> <Left> <ScriptCmd>Action('PrevYear')<CR>
   nnoremap <silent> <buffer> t <ScriptCmd>Action('Today')<CR>
+  nnoremap <silent> <buffer> <Tab> <ScriptCmd>Action('NextDiary')<CR>
+  nnoremap <silent> <buffer> <S-Tab> <ScriptCmd>Action('PrevDiary')<CR>
   nnoremap <silent> <buffer> ? <ScriptCmd>CalendarHelp()<CR>
 
 enddef
@@ -806,13 +957,27 @@ def PopupFilter(id: number, key: string): bool
     RenderView(popup_year, popup_month)
     return true
   elseif key ==# "\<CR>"
-    Action()
+    if !PopupOpenSelectedDay()
+      Action()
+    endif
+    Close()
     return true
   elseif key ==# '?'
     CalendarHelp()
     return true
+  elseif key ==# 't'
+    popup_year = str2nr(strftime('%Y'))
+    popup_month = str2nr(strftime('%m'))
+    RenderView(popup_year, popup_month)
+    return true
+  elseif key ==# "\<Tab>"
+    PopupCycleDiary(1)
+    return true
+  elseif key ==# "\<S-Tab>"
+    PopupCycleDiary(-1)
+    return true
   elseif key ==# 'h' || key ==# 'j' || key ==# 'k' || key ==# 'l'
-    win_execute(id, $'normal! {key}')
+    PopupMoveSelection(key)
     return true
   endif
   return false
@@ -863,3 +1028,4 @@ hi def link CalHeader WarningMsg
 hi def link CalHoliday Error
 hi def link CalCurrList Error
 hi def link CalHelpHint Question
+hi def link CalPopupSelection Visual
