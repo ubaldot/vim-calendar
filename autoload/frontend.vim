@@ -449,6 +449,31 @@ def ApplyHighlights(view: dict<any>)
   w:cal_weekdays = matchadd('CalWeekdays', '^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$', 22)
 enddef
 
+def ApplyPopupHighlights(winid: number, view: dict<any>)
+  if winid <= 0
+    return
+  endif
+  if !empty(view.today)
+    win_execute(winid, $"call matchaddpos('CalToday', {string(view.today)}, 40)")
+  endif
+  if !empty(view.sat)
+    win_execute(winid, $"call matchaddpos('CalSaturday', {string(view.sat)}, 30)")
+  endif
+  if !empty(view.sun)
+    win_execute(winid, $"call matchaddpos('CalSunday', {string(view.sun)}, 30)")
+  endif
+  if !empty(view.holiday)
+    win_execute(winid, $"call matchaddpos('CalHoliday', {string(view.holiday)}, 32)")
+  endif
+  if !empty(view.week)
+    win_execute(winid, $"call matchaddpos('CalWeeknm', {string(view.week)}, 35)")
+  endif
+  win_execute(winid, 'call matchadd(''CalHelpHint'', ''^Hit "?" for help$'', 20)')
+  win_execute(winid, 'call matchadd(''CalHeader'', ''^\s*[A-Za-z]\+\s\+\d\{4}$'', 25)')
+  win_execute(winid, 'call matchadd(''CalCurrList'', ''^(\*).*$'', 15)')
+  win_execute(winid, 'call matchadd(''CalWeekdays'', ''^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$'', 22)')
+enddef
+
 # Render calendar view into split window or popup.
 def RenderView(base_year: number, base_month: number)
 
@@ -472,6 +497,11 @@ def RenderView(base_year: number, base_month: number)
       drag: 0,
       scrollbar: 0,
     })
+    state_base_year = base_year
+    state_base_month = base_month
+    state_blocks = view.blocks
+    state_diary_rows = view.diary_rows
+    ApplyPopupHighlights(popup_id, view)
     return
   endif
 
@@ -710,14 +740,30 @@ def CalendarHelp()
   if help_popup_id > 0
     popup_close(help_popup_id)
   endif
-  help_popup_id = popup_create(lines, {
+
+  const popup_opts = {
     title: ' Calendar Help ',
-    pos: 'center',
     borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
     border: [1, 1, 1, 1],
     filter: HelpPopupFilter,
     mapping: 0,
-  })
+  }
+
+  help_popup_id = popup_create(lines, popup_opts)
+
+
+  # Display popup in the bottom right corner to avoid overlap
+  if cfg_position ==# 'popup'
+    const added_opts = {
+        line: &lines,
+        col: &columns,
+        pos: "botright"
+    }
+
+    const popup_opts_extended = extendnew(popup_opts, added_opts)
+    popup_setoptions(help_popup_id, popup_opts_extended)
+  endif
+
 enddef
 
 # Build buffer-local key mappings for calendar interactions.
