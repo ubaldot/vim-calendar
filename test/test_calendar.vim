@@ -13,9 +13,9 @@ def ResetConfig()
     number_of_months: 3,
     holidays: {},
     search_grep: 'internal',
-    action: 'Diary',
-    diaries_dict: {Diary: {path: '~/diary', resolution: 'day'}},
-    active_diary: 'Diary',
+    action: 'OpenDiaryPage',
+    diaries_dict: {My_Diary: {path: '~/my_diary', resolution: 'day'}},
+    active_diary: 'My_Diary',
   }
 enddef
 
@@ -32,18 +32,16 @@ enddef
 
 def g:Test_calendar_arguments()
   ResetConfig()
-  var current_month = str2nr(strftime('%m'))
+  var current_month_name = strftime('%B')
 
   Calendar 2031
   WaitForAssert(() => assert_equal(2, winnr('$')))
-  assert_equal(2031, b:CalendarBaseYear)
-  assert_equal(current_month, b:CalendarBaseMonth)
+  assert_match($'{current_month_name}\s\+2031', join(getline(1, '$'), "\n"))
   execute "normal q"
 
   Calendar 2032, 5
   WaitForAssert(() => assert_equal(2, winnr('$')))
-  assert_equal(2032, b:CalendarBaseYear)
-  assert_equal(5, b:CalendarBaseMonth)
+  assert_match('May\s\+2032', join(getline(1, '$'), "\n"))
   execute "normal q"
   assert_equal(1, winnr('$'))
 enddef
@@ -79,7 +77,7 @@ def g:Test_show_week_numbers_column()
   assert_equal(1, winnr('$'))
 enddef
 
-def g:MyTestCalAction(day: number, month: number, year: number, week: number, dir: string)
+def g:MyTestCalAction(day: number, month: number, year: number, week: number)
   g:test_action_called = 1
   g:test_action_day = day
 enddef

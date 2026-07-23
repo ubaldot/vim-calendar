@@ -1,4 +1,4 @@
-*calendar.txt* Calendar utility for vim
+*calendar.txt*                            Calendar utility for vim
 
 Author: ubaldot
 Vim 9.0 ported and refactored version of vim-calendar originally written by
@@ -54,9 +54,9 @@ Calendar options are configured through one dictionary: >
         number_of_months: 3,
         holidays: {'2025-12-25': 'Christmas'},
         search_grep: 'internal',
-        action: 'MyDiary',
-        diaries_dict: {Diary: {path: '~/diary', resolution: 'day'}},
-        active_diary: 'Diary',
+        action: 'OpenDiaryPage',
+        diaries_dict: {My_Diary: {path: '~/my_diary', resolution: 'day'}},
+        active_diary: 'My_Diary',
       }
 <
 
@@ -95,11 +95,10 @@ Supported keys in |g:calendar_config|:
                                           day: number,
                                           month: number,
                                           year: number,
-                                          week: number,
-                                          dir: string
+                                          week: number
                                         )
 
-                                Default: 'Diary' (internal function)
+                                Default: 'OpenDiaryPage' (internal function)
 
               diaries_dict      Dictionary containing the diaries information.
                                 The dictionary is of the form:
@@ -114,10 +113,10 @@ Supported keys in |g:calendar_config|:
                                 markdown file to each day of the calendar;
                                 Resolution 'month' means that you can link a
                                 markdown file to each month of the calendar.
-                                If path is omitted, it defaults to '~/diary'.
+                                If path is omitted, it defaults to '~/my_diary'.
                                 Directory creation is not automatic: you must
                                 create the required diary directories manually.
-                                Default: {Diary: {path: '~/diary',
+                                Default: {My_Diary: {path: '~/my_diary',
                                           resolution: 'day'}}
 
               active_diary      Diary name present in diaries_dict key

@@ -3,12 +3,13 @@ vim9script
 import autoload "./backend.vim"
 
 const cal_bufname = '__Calendar'
+
 const weekdays: dict<list<string>> = {
   us: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
   eu: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
   work: ['Mo', 'Tu', 'We', 'Th', 'Fr'],
 }
-const month_num_to_string = backend.month_n2_to_str
+const month_num_to_string = backend.month_num_to_str
 
 var cfg_position = 'left'
 var cfg_cal_type = 'eu'
@@ -16,15 +17,19 @@ var cfg_show_week_number = false
 var cfg_number_of_months = 3
 var cfg_holidays: dict<any> = {}
 var cfg_search_grep = 'internal'
-var cfg_diaries: dict<any> = {Diary: {path: '~/diary', resolution: 'day'}}
-var cfg_active_diary = 'Diary'
-var cfg_diary_path = '~/diary'
+var cfg_diaries: dict<any> = {My_Diary: {path: '~/my_diary', resolution: 'day'}}
+var cfg_active_diary = 'My_Diary'
+var cfg_diary_path = '~/my_diary'
 var cfg_diary_resolution = 'day'
-var cfg_action = 'Diary'
+var cfg_action = 'OpenDiaryPage'
 var popup_id = -1
 var help_popup_id = -1
 var popup_year = 0
 var popup_month = 0
+var state_base_year = 0
+var state_base_month = 0
+var state_blocks: list<dict<any>> = []
+var state_diary_rows: dict<string> = {}
 
 # Normalize diary resolution to supported values.
 def NormalizeResolution(v: any): string
@@ -68,10 +73,10 @@ def InitVariables(): bool
     cfg_search_grep = 'internal'
   endif
 
-  cfg_action = get(cfg, 'action', 'Diary')
+  cfg_action = get(cfg, 'action', 'OpenDiaryPage')
 
   var d = get(cfg, 'diaries_dict', {})
-  cfg_diaries = type(d) == v:t_dict && !empty(d) ? d : {Diary: {path: '~/diary', resolution: 'day'}}
+  cfg_diaries = type(d) == v:t_dict && !empty(d) ? d : {My_Diary: {path: '~/my_diary', resolution: 'month'}}
 
   cfg_active_diary = get(cfg, 'active_diary', '')
   if empty(cfg_active_diary) || !has_key(cfg_diaries, cfg_active_diary)
@@ -81,8 +86,8 @@ def InitVariables(): bool
 
   var active = cfg_diaries[cfg_active_diary]
 
-  cfg_diary_path = has_key(active, 'path') ? active.path : '~/diary'
-  cfg_diary_resolution = NormalizeResolution(has_key(active, 'resolution') ? active.resolution : get(cfg, 'diary_resolution', 'day'))
+  cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
+  cfg_diary_resolution = NormalizeResolution(has_key(active, 'resolution') ? active.resolution : get(cfg, 'diary_resolution', 'month'))
 
   return true
 
@@ -450,7 +455,7 @@ def RenderView(base_year: number, base_month: number)
     popup_id = popup_create(view.lines, {
       title: ' Calendar ',
       pos: 'center',
-      borderchars:  ['─', '│', '─', '│', '├', '┤', '╯', '╰'],
+      borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
       border: [1, 1, 1, 1],
       filter: PopupFilter,
       mapping: 0,
@@ -477,10 +482,10 @@ def RenderView(base_year: number, base_month: number)
     execute $"resize {min([max([8, height]), &lines - 3])}"
   endif
 
-  b:CalendarBaseYear = base_year
-  b:CalendarBaseMonth = base_month
-  b:CalendarBlocks = view.blocks
-  b:CalendarDiaryRows = view.diary_rows
+  state_base_year = base_year
+  state_base_month = base_month
+  state_blocks = view.blocks
+  state_diary_rows = view.diary_rows
 
   CalendarBuildKeymap()
   ApplyHighlights(view)
@@ -510,7 +515,7 @@ enddef
 def FindBlockAtCursor(): dict<any>
   var l = line('.')
   var c = col('.')
-  for block in get(b:, 'CalendarBlocks', [])
+  for block in state_blocks
     if l >= block.line_start && l <= block.line_end && c >= block.col_start && c <= block.col_end
       return block
     endif
@@ -518,9 +523,16 @@ def FindBlockAtCursor(): dict<any>
   return {}
 enddef
 
-# Handle diary switch when cursor is on a diary selector row.
+# Handle diary switch when cursor is on a diary selector row, i.e. when on
+# the following section
+#
+#    Calendar
+#    -----------
+#    ( ) Note
+#    (*) Diary
+#
 def SwitchDiaryAtCursor(): bool
-  var rows = get(b:, 'CalendarDiaryRows', {})
+  var rows = state_diary_rows
   var key = string(line('.'))
   if !has_key(rows, key)
     return false
@@ -540,7 +552,7 @@ def SwitchDiaryAtCursor(): bool
 
   var curp = getpos('.')
 
-  RenderView(b:CalendarBaseYear, b:CalendarBaseMonth)
+  RenderView(state_base_year, state_base_month)
 
   setpos('.', curp)
   return true
@@ -548,8 +560,8 @@ enddef
 
 # Handle calendar navigation actions and re-render.
 def HandleNavigation(arg: string): bool
-  var y = b:CalendarBaseYear
-  var m = b:CalendarBaseMonth
+  var y = state_base_year
+  var m = state_base_month
 
   if arg ==# 'NextMonth'
     var ym = AddMonths(y, m, 1)
@@ -576,50 +588,66 @@ def HandleNavigation(arg: string): bool
   return true
 enddef
 
-# Main action dispatcher for Enter and mapped operations.
+# Main action for operations specified in CalendarBuildKeymap()
 def Action(arg: string = '')
-  if arg !=# '' && HandleNavigation(arg)
+
+  if !empty(arg) && HandleNavigation(arg)
     return
   endif
+
+  # Check first if you are in "diary selection area", e.g. in the section
+  #
+  #    Calendar
+  #    -----------
+  #    ( ) Note
+  #    (*) Diary
+  #
   if SwitchDiaryAtCursor()
     return
   endif
 
-  var day_text = matchstr(expand('<cword>'), '^\d\{1,2}$')
-  if empty(day_text)
+  # If cursor is on a whitespace don't do anything
+  var day_string = matchstr(expand('<cword>'), '^\d\{1,2}$')
+  if empty(day_string)
     return
   endif
 
+  # Otherwise call cfg_action, but first extract [day, month, year, week]
+  # arguments
+  var day = str2nr(day_string)
+
   var block = FindBlockAtCursor()
+
+  # Guard that the cursor is not on any weird place
   if empty(block) || col('.') < block.day_col_start || col('.') > block.day_col_end
     return
   endif
 
-  var day = str2nr(day_text)
-  var week = WeekdayForDate(block.year, block.month, day)
+  var month = block.month
+  var year = block.year
+  var week = WeekdayForDate(year, month, day)
 
-  var dir = cfg_position ==# 'popup' ? 'P' : 'V'
-  var action_name = 'Diary'
-
+  var action_name = 'OpenDiaryPage'
   if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
     action_name = cfg_action
   endif
-
-  call(function(action_name), [day, block.month, block.year, week, dir])
+  call(function(action_name), [day, month, year, week])
 enddef
 
 # Close split window or popup calendar.
 def Close()
   if popup_id > 0
+    # Calendar in popup case
     popup_close(popup_id)
     popup_id = -1
-    return
+  else
+    # Calendar in window case
+    bwipeout!
   endif
-  bwipeout!
 enddef
 
-# Default diary action: open/create markdown diary file for selected date.
-def Diary(day: number, month: number, year: number, week: number, dir: string)
+# Default action: open/create markdown diary file for selected date.
+def OpenDiaryPage(day: number, month: number, year: number, week: number)
   if !isdirectory(expand(cfg_diary_path))
     confirm($"please create diary directory: {cfg_diary_path}", 'OK')
     return
@@ -638,18 +666,11 @@ def Diary(day: number, month: number, year: number, week: number, dir: string)
       return
     endif
   endif
+
   var file = substitute(DiaryFilePath(year, month, day), ' ', '\\ ', 'g')
-
-  var cur = win_getid()
-
   silent! wincmd p
-
-  if win_getid() == cur
-    botright split
-  endif
-
   execute $"edit {file}"
-  setlocal filetype=markdown
+
 enddef
 
 # Filter for help popup: close with q or <Esc>.
@@ -683,6 +704,7 @@ def CalendarHelp()
   help_popup_id = popup_create(lines, {
     title: ' Calendar Help ',
     pos: 'center',
+    borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
     border: [1, 1, 1, 1],
     filter: HelpPopupFilter,
     mapping: 0,
@@ -691,6 +713,7 @@ enddef
 
 # Build buffer-local key mappings for calendar interactions.
 def CalendarBuildKeymap()
+
   nnoremap <silent> <buffer> q <ScriptCmd>Close()<CR>
   nnoremap <silent> <buffer> <Esc> <ScriptCmd>Close()<CR>
   nnoremap <silent> <buffer> <CR> <ScriptCmd>Action()<CR>
@@ -759,17 +782,20 @@ enddef
 
 # Search keyword across diary markdown files.
 export def Search(keyword: string)
+
   if !InitVariables()
     return
   endif
 
   if cfg_search_grep ==# 'internal'
     var pattern = escape(keyword, '/\')
-    execute $"vimgrep /{pattern}/{escape(cfg_diary_path, ' ')}/**/*.md | cw"
+    execute $"vimgrep /{pattern}/{escape(cfg_diary_path, ' ')}/**/*.md"
   else
     execute $"grep! {keyword} {escape(cfg_diary_path, ' ')}/**/*.md"
-    silent cwindow
   endif
+
+  silent cwindow
+
 enddef
 
 hi def link CalSaturday LineNr

@@ -37,9 +37,9 @@ g:calendar_config = {
   number_of_months: 3,
   holidays: {},
   search_grep: 'internal',
-  action: 'Diary',
-  diaries_dict: {Diary: {path: '~/diary', resolution: 'day'}},
-  active_diary: 'Diary',
+  action: 'OpenDiaryPage',
+  diaries_dict: {My_Diary: {path: '~/my_diary', resolution: 'day'}},
+  active_diary: 'My_Diary',
 }
 ```
 
@@ -51,13 +51,13 @@ Supported top-level keys:
 - `number_of_months`: integer `>= 1`
 - `holidays`: dict keyed by `YYYY-MM-DD` (rendered with `!`)
 - `search_grep`: `internal` (`:vimgrep`) or `external` (`:grep`)
-- `action`: function name to call on `<CR>` (defaults to `Diary`)
+- `action`: function name to call on `<CR>` (defaults to `OpenDiaryPage`)
 - `diaries_dict`: dict of diaries (`{name: {path, resolution}}`)
 - `active_diary`: key from `diaries_dict`
 
-If a diary `path` is omitted, it defaults to `~/diary`. The plugin does not
+If a diary `path` is omitted, it defaults to `~/my_diary`. The plugin does not
 create diary directories automatically; create them manually before using
-`Diary` actions.
+`OpenDiaryPage` actions.
 
 Built-in key bindings are fixed:
 

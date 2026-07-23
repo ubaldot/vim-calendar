@@ -2,8 +2,8 @@ vim9script
 
 # Functions for backend computations, like Zeller's congruence formula,
 # computation of calendar of a given month/year, etc
-if !exists('month_n2_to_str')
-  export const month_n2_to_str = {
+if !exists('month_num_to_str')
+  export const month_num_to_str = {
     01: "January",
     02: "February",
     03: "March",
@@ -20,7 +20,7 @@ if !exists('month_n2_to_str')
 endif
 
 # I have to do this otherwise it won't like it
-var month_nr_to_str = month_n2_to_str
+var month_nr_to_str = month_num_to_str
 
 # Number of days in a given month
 def DaysInMonth(year: number, month: number): number
