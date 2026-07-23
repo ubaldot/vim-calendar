@@ -29,7 +29,7 @@ Hit `?` once the calendar is opened to see the key bindings.
 
 ## Minimal configuration
 
-```vim
+```
 g:calendar_config = {
   position: 'left',
   cal_type: 'eu',
