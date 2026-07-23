@@ -9,9 +9,10 @@ CONTENTS                                            *calendar-contents*
 
     1. Introduction ......... |calendar-introduction|
     2. Commands ............. |calendar-commands|
-    3. Configuration ........ |calendar-configuration|
-    4. Autocommand .......... |calendar-autocmds|
-    5. License .............. |calendar-license|
+    3. Commands ............. |calendar-mappings|
+    4. Configuration ........ |calendar-configuration|
+    5. Autocommand .......... |calendar-autocmds|
+    6. License .............. |calendar-license|
 
 ==============================================================================
 INTRODUCTION                                    *calendar*
@@ -41,6 +42,19 @@ vim-calendar makes the following commands available:
 
                                             *calendar-:CalendarSearch*
 :CalendarSearch [keyword]  Search keyword in current calendar diary book.
+
+==============================================================================
+MAPPINGS                                        *calendar-mappings*
+
+h/j/k/l          move cursor
+|<Up>|             previous month,
+|<Down>|           next month,
+|<Left>|           previous year,
+|<Right>|          next year,
+t                go to today,
+|<CR>|             open/switch on cursor,
+|<Tab>| / |<S-Tab>|  next/prev diary,
+q or |<Esc>|       close,
 
 ==============================================================================
 CONFIGURATION                                        *calendar-configuration*
