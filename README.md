@@ -35,6 +35,7 @@ g:calendar_config = {
   cal_type: 'eu',
   show_week_number: false,
   holidays: {'2026-12-15': 'Christmas'},
+  auto_create_diary_dirs: false,
   diaries_dict: {
     My_Diary: {path: '~/my_diary', resolution: 'month'},
     Notes: {path: '~/notes', resolution: 'day'},

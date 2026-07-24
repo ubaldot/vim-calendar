@@ -73,6 +73,7 @@ Calendar options are configured through one dictionary: >
         holidays: {'2025-12-25': 'Christmas'},
         search_grep: 'internal',
         action: 'OpenDiaryPage',
+        auto_create_diary_dirs: false,
         diaries_dict: {My_Diary: {path: '~/my_diary', resolution: 'day'}},
         active_diary: 'My_Diary',
       }
@@ -118,6 +119,13 @@ Supported keys in |g:calendar_config|:
 
                                 Default: 'OpenDiaryPage' (internal function)
 
+      auto_create_diary_dirs    When |true|, creates missing diary
+                                directories automatically using
+                                `mkdir(path, 'p')`.
+                                When false, warns and asks the user
+                                to create directories manually.
+                                Default: |false|
+
               diaries_dict      Dictionary containing the diaries information.
                                 The dictionary is of the form:
                                       dict: {
@@ -132,8 +140,8 @@ Supported keys in |g:calendar_config|:
                                 Resolution 'month' means that you can link a
                                 markdown file to each month of the calendar.
                                 If path is omitted, it defaults to '~/my_diary'.
-                                Directory creation is not automatic: you must
-                                create the required diary directories manually.
+                                Directory creation follows
+                                auto_create_diary_dirs.
                                 Default: {My_Diary: {path: '~/my_diary',
                                           resolution: 'day'}}
 

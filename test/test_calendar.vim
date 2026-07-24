@@ -14,6 +14,7 @@ def ResetConfig()
     holidays: {},
     search_grep: 'internal',
     action: 'OpenDiaryPage',
+    auto_create_diary_dirs: false,
     diaries_dict: {My_Diary: {path: '~/my_diary', resolution: 'day'}},
     active_diary: 'My_Diary',
   }
@@ -154,4 +155,28 @@ def g:Test_diary_cycle_popup_tab_keys()
   WaitForAssert(() => assert_equal('Alpha', g:calendar_config.active_diary))
 
   popup_close(popup_list()[0])
+enddef
+
+def g:Test_open_diary_auto_create_dirs_day_resolution()
+  ResetConfig()
+  var tmp_root = tempname() .. '_calendar_diary'
+  delete(tmp_root, 'rf')
+
+  g:calendar_config.position = 'popup'
+  g:calendar_config.diaries_dict = {
+    My_Diary: {path: tmp_root, resolution: 'day'},
+  }
+  g:calendar_config.active_diary = 'My_Diary'
+  g:calendar_config.auto_create_diary_dirs = true
+
+  Calendar 2026, 7
+  WaitForAssert(() => assert_true(len(popup_list()) > 0))
+  feedkeys("\<CR>", 'xt')
+
+  assert_true(isdirectory(tmp_root))
+  assert_true(isdirectory(tmp_root .. '/2026'))
+  assert_true(isdirectory(tmp_root .. '/2026/July'))
+
+  :%bw!
+  delete(tmp_root, 'rf')
 enddef

@@ -21,6 +21,7 @@ var cfg_diaries: dict<any> = {My_Diary: {path: '~/my_diary', resolution: 'day'}}
 var cfg_active_diary = 'My_Diary'
 var cfg_diary_path = '~/my_diary'
 var cfg_diary_resolution = 'day'
+var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
 var popup_id = -1
 var help_popup_id = -1
@@ -76,6 +77,7 @@ def InitVariables(): bool
   endif
 
   cfg_action = get(cfg, 'action', 'OpenDiaryPage')
+  cfg_auto_create_diary_dirs = !!get(cfg, 'auto_create_diary_dirs', false)
 
   var d = get(cfg, 'diaries_dict', {})
   cfg_diaries = type(d) == v:t_dict && !empty(d) ? d : {My_Diary: {path: '~/my_diary', resolution: 'month'}}
@@ -833,29 +835,46 @@ def Close()
   endif
 enddef
 
+def EnsureDiaryDir(path: string): bool
+  if isdirectory(path)
+    return true
+  endif
+  if cfg_auto_create_diary_dirs
+    mkdir(path, 'p')
+    if isdirectory(path)
+      return true
+    endif
+    confirm($"failed to create diary directory: {path}", 'OK')
+    return false
+  endif
+  confirm($"please create diary directory: {path}", 'OK')
+  return false
+enddef
+
 # Default action: open/create markdown diary file for selected date.
 def OpenDiaryPage(day: number, month: number, year: number, week: number)
-  if !isdirectory(expand(cfg_diary_path))
-    confirm($"please create diary directory: {cfg_diary_path}", 'OK')
+  var diary_root = expand(cfg_diary_path)
+  if !EnsureDiaryDir(diary_root)
     return
   endif
 
-  var year_dir = $"{expand(cfg_diary_path)}/{printf('%04d', year)}"
-  if isdirectory(year_dir) == 0
-    confirm($"please create diary directory: {year_dir}", 'OK')
+  var year_dir = $"{diary_root}/{printf('%04d', year)}"
+  if !EnsureDiaryDir(year_dir)
     return
   endif
 
   if cfg_diary_resolution ==# 'day'
     var month_dir = $"{year_dir}/{MonthName(month)}"
-    if isdirectory(month_dir) == 0
-      confirm($"please create diary directory: {month_dir}", 'OK')
+    if !EnsureDiaryDir(month_dir)
       return
     endif
   endif
 
   var file = substitute(DiaryFilePath(year, month, day), ' ', '\\ ', 'g')
   silent! wincmd p
+  if exists('+winfixbuf') && &l:winfixbuf
+    setlocal nowinfixbuf
+  endif
   execute $"edit {file}"
 
 enddef
