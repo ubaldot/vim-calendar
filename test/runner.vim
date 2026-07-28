@@ -1,54 +1,72 @@
 vim9script
 
-# Script copied from LSP plugin
+# Uncomment for manual tests.
+# if !exists('g:TestFiles')
+# 	g:TestFiles = ['test_calendar.vim']
+# endif
 
-# The global variable TestName should be set to the name of the file
-# containing the tests.
+delete('results.txt')
 
-# source common.vim
+def RunTests(test_file: string)
+  set nomore
+  set debug=beep
 
-def RunTests()
-  :set nomore
-  :set debug=beep
-  delete('results.txt')
+  writefile([$'o {test_file}'], 'results.txt', 'a')
 
-  # Get the list of test functions in this file and call them
-  var fns: list<string> = execute('function /^Test_')
-		    ->split("\n")
-		    ->map("v:val->substitute('^def ', '', '')")
-		    ->sort()
-  if fns->empty()
-    # No tests are found
-    writefile(['No tests are found'], 'results.txt')
+  # Load test functions in memory
+  execute $"source {test_file}"
+  var read_test_file = readfile(test_file)
+
+  # Get test functions names
+  var all_functions = copy(read_test_file)
+    ->filter('v:val =~ "^def g:"')
+    ->map("v:val->substitute('^def g:', '', '')")
+    ->sort()
+
+  # Check if user defined some function name erroneously
+  var wrong_test_functions = copy(all_functions)->filter('v:val !~ "^Test_"')
+  if !empty(wrong_test_functions)
+    writefile([$'WARNING: The following tests are skipped: {wrong_test_functions}'], 'results.txt', 'a')
+    writefile([''], 'results.txt', 'a')
+  endif
+
+  # Pick the good functions
+  var test_functions = copy(all_functions)->filter('v:val =~ "^Test_"')
+  if test_functions->empty()
+    writefile([$'No tests are found in {test_file}'], 'results.txt', 'a')
     return
   endif
-  for f in fns
+
+  for test in test_functions
     v:errors = []
     v:errmsg = ''
     try
       :%bw!
-      exe $'g:{f}'
+      exe $'call {test}'
     catch
-      add(v:errors, $'Error: Test {f} failed with exception {v:exception} at {v:throwpoint}')
+      add(v:errors, $'Error: Test {test} failed with exception {v:exception} at {v:throwpoint}')
     endtry
     if v:errmsg != ''
-      add(v:errors, $'Error: Test {f} generated error {v:errmsg}')
+      add(v:errors, $'Error: Test {test} generated error {v:errmsg}')
     endif
     if !v:errors->empty()
       writefile(v:errors, 'results.txt', 'a')
-      writefile([$'{f}: FAIL'], 'results.txt', 'a')
+      writefile([$'{test}: FAIL'], 'results.txt', 'a')
     else
-      writefile([$'{f}: pass'], 'results.txt', 'a')
+      writefile([$'{test}: pass'], 'results.txt', 'a')
     endif
   endfor
 enddef
 
-try
-  exe $'source {g:TestName}'
-  RunTests()
-catch
-  writefile(['FAIL: Tests in ' .. g:TestName .. ' failed with exception ' .. v:exception .. ' at ' .. v:throwpoint], 'results.txt', 'a')
-endtry
+for test_file in g:TestFiles
+  try
+    RunTests(test_file)
+    writefile([''], 'results.txt', 'a')
+  catch
+    writefile(['FAIL: Tests in ' .. test_file .. ' failed with exception '
+          \   .. v:exception .. ' at ' .. v:throwpoint], 'results.txt', 'a')
+  endtry
+endfor
 
 qall!
 
