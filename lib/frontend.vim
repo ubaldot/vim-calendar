@@ -1004,7 +1004,7 @@ enddef
 
 # ─── Week view helpers ───────────────────────────────────────────────────────
 
-# Convert a Gregorian date to a Julian Day Number.
+# Julian Day Number formula (Fliegel & Van Flandern, 1968).
 def DateToJDN(year: number, month: number, day: number): number
   var a = (14 - month) / 12
   var y = year + 4800 - a
@@ -1012,7 +1012,7 @@ def DateToJDN(year: number, month: number, day: number): number
   return day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045
 enddef
 
-# Convert a Julian Day Number back to a Gregorian date dict {year, month, day}.
+# Inverse of DateToJDN (same paper).
 def JDNToDate(jdn: number): dict<any>
   var a = jdn + 32044
   var b = (4 * a + 3) / 146097
@@ -1035,7 +1035,8 @@ def WeekDays(year: number, month: number, day: number): list<dict<any>>
   return range(7)->mapnew((i, _) => JDNToDate(mon_jdn + i))
 enddef
 
-# Return the ISO 8601 week number for the given date.
+# ISO week number: Thursday of the week is always in the same ISO year;
+# Jan 4 is always in ISO week 1 (ISO 8601).
 def ISOWeekNum(year: number, month: number, day: number): number
   var wd = WeekdayForDate(year, month, day)
   var thu_jdn = DateToJDN(year, month, day) + (4 - wd)
