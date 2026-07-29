@@ -3,7 +3,7 @@ vim9script
 import "./common.vim"
 var WaitForAssert = common.WaitForAssert
 
-packadd calendar
+packadd CalendarToggle
 
 def ResetConfig()
   g:calendar_config = {
@@ -22,7 +22,7 @@ enddef
 
 def g:Test_calendar_basic()
   ResetConfig()
-  Calendar 1998, 10
+  CalendarToggle 1998, 10
   WaitForAssert(() => assert_equal(2, winnr('$')))
   assert_equal('row', winlayout()[0])
   assert_equal('Hit "?" for help', getline(1))
@@ -35,12 +35,12 @@ def g:Test_calendar_arguments()
   ResetConfig()
   var current_month_name = strftime('%B')
 
-  Calendar 2031
+  CalendarToggle 2031
   WaitForAssert(() => assert_equal(2, winnr('$')))
   assert_match($'{current_month_name}\s\+2031', join(getline(1, '$'), "\n"))
   execute "normal q"
 
-  Calendar 2032, 5
+  CalendarToggle 2032, 5
   WaitForAssert(() => assert_equal(2, winnr('$')))
   assert_match('May\s\+2032', join(getline(1, '$'), "\n"))
   execute "normal q"
@@ -50,7 +50,7 @@ enddef
 def g:Test_calendar_position_right()
   ResetConfig()
   g:calendar_config.position = 'right'
-  Calendar 2020, 2
+  CalendarToggle 2020, 2
   WaitForAssert(() => assert_equal(2, winnr('$')))
   assert_equal('row', winlayout()[0])
   assert_match('February 2020', join(getline(1, '$'), "\n"))
@@ -61,7 +61,7 @@ enddef
 def g:Test_calendar_position_popup()
   ResetConfig()
   g:calendar_config.position = 'popup'
-  Calendar 2020, 2
+  CalendarToggle 2020, 2
   WaitForAssert(() => assert_equal(1, winnr('$')))
   assert_true(len(popup_list()) > 0)
   popup_close(popup_list()[0])
@@ -70,7 +70,7 @@ enddef
 def g:Test_show_week_numbers_column()
   ResetConfig()
   g:calendar_config.show_week_number = true
-  Calendar 2026, 7
+  CalendarToggle 2026, 7
   WaitForAssert(() => assert_equal(2, winnr('$')))
   assert_match('^WK  ', getline(4))
   assert_match('^\s*\d\{2}\s', getline(5))
@@ -87,7 +87,7 @@ def g:Test_action_from_config()
   ResetConfig()
   g:test_action_called = 0
   g:calendar_config.action = 'g:MyTestCalAction'
-  Calendar 2026, 7
+  CalendarToggle 2026, 7
   WaitForAssert(() => assert_equal(2, winnr('$')))
   call cursor(5, 11)
   execute "normal \<CR>"
@@ -106,7 +106,7 @@ def g:Test_autocmd_before_show()
     autocmd User CalendarBeforeShow g:test_before_show += 1
   augroup END
 
-  Calendar 2024, 1
+  CalendarToggle 2024, 1
   WaitForAssert(() => assert_equal(2, winnr('$')))
   assert_equal(1, g:test_before_show)
   execute "normal q"
@@ -124,7 +124,7 @@ def g:Test_diary_cycle_split_tab_keys()
   }
   g:calendar_config.active_diary = 'Alpha'
 
-  Calendar 2026, 7
+  CalendarToggle 2026, 7
   WaitForAssert(() => assert_equal(2, winnr('$')))
 
   feedkeys("\<Tab>", 'xt')
@@ -145,7 +145,7 @@ def g:Test_diary_cycle_popup_tab_keys()
   }
   g:calendar_config.active_diary = 'Alpha'
 
-  Calendar 2026, 7
+  CalendarToggle 2026, 7
   WaitForAssert(() => assert_true(len(popup_list()) > 0))
 
   feedkeys("\<Tab>", 'xt')
@@ -169,7 +169,7 @@ def g:Test_open_diary_auto_create_dirs_month_resolution()
   g:calendar_config.active_diary = 'My_Diary'
   g:calendar_config.auto_create_diary_dirs = true
 
-  Calendar 2026, 7
+  CalendarToggle 2026, 7
   WaitForAssert(() => assert_true(len(popup_list()) > 0))
   feedkeys("\<CR>", 'xt')
 

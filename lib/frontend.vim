@@ -1234,16 +1234,21 @@ enddef
 # open fresh if not yet open.
 var cal_tab_winid = -1
 
-export def CalendarToggle()
+export def CalendarToggle(year: number = -1, month: number = -1)
   if !InitVariables()
     return
   endif
 
   if win_id2win(cal_tab_winid) > 0
+      && bufname(winbufnr(cal_tab_winid)) ==# cal_bufname
     var [tabnr, _] = win_id2tabwin(cal_tab_winid)
     if tabpagenr() == tabnr
       cal_tab_winid = -1
-      tabclose
+      if tabpagenr('$') > 1
+        tabclose
+      else
+        Close()
+      endif
     else
       execute $'tabnext {tabnr}'
       win_gotoid(cal_tab_winid)
@@ -1251,9 +1256,7 @@ export def CalendarToggle()
     return
   endif
 
-  var y = str2nr(strftime('%Y'))
-  var m = str2nr(strftime('%m'))
-  Show(y, m)
+  Show(year, month)
   cal_tab_winid = win_getid()
   CallConnectHook()
 enddef
