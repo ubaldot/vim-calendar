@@ -1133,8 +1133,13 @@ enddef
 # (year, month, day).  Pass events as a dict keyed 'YYYY-MM-DD' → list of
 # {start: 'HH:MM', subject: '...', organizer: '...'}.
 export def RenderWeekView(year: number, month: number, day: number, events: dict<any>)
+  # If week_view_winid is stale, try to recover via buffer name.
   if week_view_winid <= 0 || win_id2win(week_view_winid) == 0
-    return
+    var bwv = bufwinnr(WEEK_BUF_NAME)
+    if bwv <= 0
+      return
+    endif
+    week_view_winid = win_getid(bwv)
   endif
 
   var wdays    = WeekDays(year, month, day)
@@ -1262,6 +1267,8 @@ export def Show(year: number = -1, month: number = -1): string
 
   var y = year == -1 ? str2nr(strftime('%Y')) : year
   var m = month == -1 ? str2nr(strftime('%m')) : month
+
+  week_view_winid = -1   # reset so stale IDs don't block rendering
 
   if cfg_position ==# 'popup'
     RenderView(y, m)
