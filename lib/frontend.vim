@@ -26,8 +26,7 @@ var cfg_active_diary = 'My_Diary'
 var cfg_diary_path = '~/my_diary'
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
-var cfg_appointments_path = ''
-var cfg_connect = ''   # global function name called to fetch appointments for active diary
+var cfg_connect = ''   # connect function name for the active diary's appointment source
 var popup_id = -1
 var help_popup_id = -1
 var popup_year = 0
@@ -38,9 +37,8 @@ var state_base_year = 0
 var state_base_month = 0
 var state_blocks: list<dict<any>> = []
 var state_diary_rows: dict<string> = {}
-var week_view_winid = -1
 var week_cache: dict<dict<list<any>>> = {}
-var current_week_key = ''   # WeekCacheKey of last rendered week; used by :CalendarRefresh
+var current_week_key = ''   # WeekCacheKey of the week currently shown in __WeekView__
 
 # Normalize window placement to supported values.
 def NormalizePos(v: any): string
@@ -723,8 +721,7 @@ def ActivateDiary(name: string): bool
   var d                 = cfg_diaries[name]
   cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
   cfg_connect    = get(d, 'connect', '')
-  cfg_appointments_path = ''   # reset; will be set by CallConnectHook return value
-  week_cache            = {}   # new diary has its own appointments
+  week_cache     = {}   # new diary has its own appointments
   return true
 enddef
 
@@ -860,7 +857,6 @@ def Close()
     popup_close(popup_id)
     popup_id = -1
   else
-    week_view_winid = -1
     if tabpagenr('$') > 1
       tabclose!
     else
@@ -1142,8 +1138,8 @@ def FindHourEvent(events: dict<any>, date_key: string, hour: number): dict<any>
   return {}
 enddef
 
-# Set up the __WeekView__ buffer in window with the given buffer number,
-# repurposing it in-place.  Updates week_view_winid.  Returns true on success.
+# Set up the __WeekView__ buffer in the window with the given buffer number,
+# repurposing it in-place. Returns true on success.
 def OpenWeekViewWindow(tabnew_bufnr: number): bool
   var winnr = bufwinnr(tabnew_bufnr)
   if winnr <= 0
@@ -1156,7 +1152,6 @@ def OpenWeekViewWindow(tabnew_bufnr: number): bool
   if has('+relativenumber') || exists('+relativenumber')
     setlocal nornu
   endif
-  week_view_winid = win_getid()
   return true
 enddef
 
@@ -1210,7 +1205,6 @@ enddef
 
 # Call the active diary's connect hook for the given week date.
 # The hook must return the path it wrote to on success, '' on failure.
-# vim-calendar then calls LoadAppointments on that path.
 def CallConnectHook(year: number = -1, month: number = -1, day: number = -1)
   if empty(cfg_connect) || !exists('*' .. cfg_connect)
     return
@@ -1219,17 +1213,14 @@ def CallConnectHook(year: number = -1, month: number = -1, day: number = -1)
   var fm = month > 0 ? month : str2nr(strftime('%m'))
   var fd = day   > 0 ? day   : str2nr(strftime('%d'))
   var path = call(function(cfg_connect), [fy, fm, fd])
-  if empty(path)
-    return
+  if !empty(path)
+    LoadAppointments(path)
   endif
-  cfg_appointments_path = path
-  LoadAppointments(path)
 enddef
 
-# Parse the JSON at path and cache/render for the given week.
+# Parse the JSON at path, cache events for the current week, and re-render.
 # JSON format: list of {start, end, subject, organizer, location, body}.
-# Uses current_week_key to know which week to cache and render.
-export def LoadAppointments(path: string)
+def LoadAppointments(path: string)
   if !filereadable(path)
     return
   endif
@@ -1258,8 +1249,9 @@ export def LoadAppointments(path: string)
     })
   endfor
 
-  # Derive week date from current_week_key ('YYYY-MM-DD' Monday of displayed week).
-  var key = empty(current_week_key) ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d'))) : current_week_key
+  var key = empty(current_week_key)
+    ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
+    : current_week_key
   var ky = str2nr(key[0 : 3])
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
@@ -1267,14 +1259,9 @@ export def LoadAppointments(path: string)
   RenderWeekView(ky, km, kd, events)
 enddef
 
-# Called after a fresh JSON is written (g:OutlookCalendarFetch → :CalendarRefresh),
-# or by the user to force a re-fetch of the currently displayed week.
+# Re-fetch appointments for the currently displayed week.
+# Invalidates the cache entry so fresh data is fetched from the connect hook.
 export def CalendarRefresh()
-  if !empty(cfg_appointments_path) && filereadable(cfg_appointments_path)
-    LoadAppointments(cfg_appointments_path)
-    return
-  endif
-  # Manual call: invalidate cache and re-fetch the current week.
   if empty(cfg_connect)
     return
   endif
@@ -1330,8 +1317,6 @@ export def Show(year: number = -1, month: number = -1): string
 
   var y = year == -1 ? str2nr(strftime('%Y')) : year
   var m = month == -1 ? str2nr(strftime('%m')) : month
-
-  week_view_winid = -1   # reset so stale IDs don't block rendering
 
   if cfg_position ==# 'popup'
     RenderView(y, m)
