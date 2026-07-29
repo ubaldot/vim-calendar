@@ -26,6 +26,7 @@ var cfg_active_diary = 'My_Diary'
 var cfg_diary_path = '~/my_diary'
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
+var cfg_appointments_path = ''
 var popup_id = -1
 var help_popup_id = -1
 var popup_year = 0
@@ -90,6 +91,7 @@ def InitVariables(): bool
   var active = cfg_diaries[cfg_active_diary]
 
   cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
+  cfg_appointments_path = get(active, 'appointments_path', '')
 
   return true
 
@@ -1164,6 +1166,76 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
 enddef
 
 # ─── End week view helpers ────────────────────────────────────────────────────
+
+# Parse the JSON at path and refresh the week view.
+# JSON format: list of {start, end, subject, organizer, location, body}.
+export def LoadAppointments(path: string)
+  if !filereadable(path)
+    return
+  endif
+  var items: list<any> = []
+  try
+    items = json_decode(readfile(path)->join("\n"))
+  catch
+    echomsg '[Calendar] Could not parse appointments file.'
+    return
+  endtry
+
+  var events: dict<list<any>> = {}
+  for item in items
+    var date_key = strpart(get(item, 'start', ''), 0, 10)
+    if !has_key(events, date_key)
+      events[date_key] = []
+    endif
+    events[date_key]->add({
+      start:     strpart(get(item, 'start', ''), 11, 5),
+      end:       strpart(get(item, 'end',   ''), 11, 5),
+      subject:   get(item, 'subject',   ''),
+      organizer: get(item, 'organizer', ''),
+      location:  get(item, 'location',  ''),
+      body:      get(item, 'body',      ''),
+    })
+  endfor
+
+  var y = str2nr(strftime('%Y'))
+  var m = str2nr(strftime('%m'))
+  var d = str2nr(strftime('%d'))
+  RenderWeekView(y, m, d, events)
+enddef
+
+# Reload appointments from the active diary's appointments_path and re-render.
+export def CalendarRefresh()
+  if !empty(cfg_appointments_path)
+    LoadAppointments(cfg_appointments_path)
+  endif
+enddef
+
+# Toggle the calendar tab: jump to it if open elsewhere, close if current,
+# open fresh if not yet open.
+var cal_tab_winid = -1
+
+export def CalendarToggle()
+  if !InitVariables()
+    return
+  endif
+
+  if win_id2win(cal_tab_winid) > 0
+    var [tabnr, _] = win_id2tabwin(cal_tab_winid)
+    if tabpagenr() == tabnr
+      cal_tab_winid = -1
+      tabclose
+    else
+      execute $'tabnext {tabnr}'
+      win_gotoid(cal_tab_winid)
+    endif
+    return
+  endif
+
+  var y = str2nr(strftime('%Y'))
+  var m = str2nr(strftime('%m'))
+  Show(y, m)
+  cal_tab_winid = win_getid()
+enddef
 
 # Main entrypoint used by :Calendar command.
 export def Show(year: number = -1, month: number = -1): string
