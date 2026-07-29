@@ -15,5 +15,5 @@ g:loaded_calendar = true
 import autoload "../lib/frontend.vim"
 
 command! -nargs=* CalendarToggle   frontend.CalendarToggle(<args>)
-command! -nargs=* CalendarRefresh  frontend.CalendarRefresh(<f-args>)
+command! -nargs=0 CalendarRefresh  frontend.CalendarRefresh()
 command! -nargs=* CalendarSearch   frontend.Search(<f-args>)

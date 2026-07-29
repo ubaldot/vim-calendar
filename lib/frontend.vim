@@ -1205,7 +1205,8 @@ enddef
 
 # Parse the JSON at path and cache/render for the given week.
 # JSON format: list of {start, end, subject, organizer, location, body}.
-export def LoadAppointments(path: string, year: number, month: number, day: number)
+# Uses current_week_key to know which week to cache and render.
+export def LoadAppointments(path: string)
   if !filereadable(path)
     return
   endif
@@ -1234,37 +1235,32 @@ export def LoadAppointments(path: string, year: number, month: number, day: numb
     })
   endfor
 
-  week_cache[WeekCacheKey(year, month, day)] = events
-  RenderWeekView(year, month, day, events)
+  # Derive week date from current_week_key ('YYYY-MM-DD' Monday of displayed week).
+  var key = empty(current_week_key) ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d'))) : current_week_key
+  var ky = str2nr(key[0 : 3])
+  var km = str2nr(key[5 : 6])
+  var kd = str2nr(key[8 : 9])
+  week_cache[key] = events
+  RenderWeekView(ky, km, kd, events)
 enddef
 
-# Called by FetchDone (via :CalendarRefresh year month day) after a fresh JSON
-# is written, or by the user (:CalendarRefresh) to re-fetch the current week.
-export def CalendarRefresh(year: number = -1, month: number = -1, day: number = -1)
-  if year > 0
-    # Invoked from FetchDone with the week that was fetched.
-    if !empty(cfg_appointments_path)
-      LoadAppointments(cfg_appointments_path, year, month, day)
-    endif
+# Called after a fresh JSON is written (g:OutlookCalendarFetch → :CalendarRefresh),
+# or by the user to force a re-fetch of the currently displayed week.
+export def CalendarRefresh()
+  if !empty(cfg_appointments_path) && filereadable(cfg_appointments_path)
+    LoadAppointments(cfg_appointments_path)
     return
   endif
-
-  # Manual call: re-fetch the currently displayed week.
+  # Manual call: invalidate cache and re-fetch the current week.
   if empty(cfg_connect)
     return
   endif
-  var key = current_week_key
-  if empty(key)
-    # Calendar never rendered yet — default to today.
-    var td = str2nr(strftime('%d'))
-    var tm = str2nr(strftime('%m'))
-    var ty = str2nr(strftime('%Y'))
-    key = WeekCacheKey(ty, tm, td)
-  endif
+  var key = empty(current_week_key)
+    ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
+    : current_week_key
   if has_key(week_cache, key)
     remove(week_cache, key)
   endif
-  # Parse the key back to a date (it is the Monday: 'YYYY-MM-DD').
   var ky = str2nr(key[0 : 3])
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
