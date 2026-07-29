@@ -834,22 +834,24 @@ def Action(arg: string = '')
   var year = block.year
   var week = WeekdayForDate(year, month, day)
 
-  var action_name = 'OpenDiaryPage'
-  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
-    action_name = cfg_action
-  endif
-  call(function(action_name), [day, month, year, week])
-
-  # Always refresh week view when visible
-  if week_view_winid > 0 && win_id2win(week_view_winid) > 0
+  # When the week view is open, <CR> navigates it — don't open a diary page.
+  if bufnr(WEEK_BUF_NAME) > 0
     var cache_key = WeekCacheKey(year, month, day)
     if has_key(week_cache, cache_key)
       RenderWeekView(year, month, day, week_cache[cache_key])
     else
       CallConnectHook(year, month, day)
-      RenderWeekView(year, month, day, {})  # render empty now; fetch will refresh
+      RenderWeekView(year, month, day, {})
     endif
+    return
   endif
+
+  # No week view (popup mode) — open diary page as usual.
+  var action_name = 'OpenDiaryPage'
+  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
+    action_name = cfg_action
+  endif
+  call(function(action_name), [day, month, year, week])
 enddef
 
 # Close split window or popup calendar.

@@ -84,6 +84,8 @@ def g:MyTestCalAction(day: number, month: number, year: number, week: number)
 enddef
 
 def g:Test_action_from_config()
+  # In split mode (with week view), <CR> navigates the week view and does NOT
+  # call cfg_action. cfg_action is only invoked in popup mode.
   ResetConfig()
   g:test_action_called = 0
   g:calendar_config.action = 'g:MyTestCalAction'
@@ -91,11 +93,9 @@ def g:Test_action_from_config()
   WaitForAssert(() => assert_equal(2, winnr('$')))
   call cursor(5, 11)
   execute "normal \<CR>"
-  assert_equal(1, g:test_action_called)
-  assert_true(g:test_action_day > 0)
+  assert_equal(0, g:test_action_called)
   execute "normal q"
   unlet g:test_action_called
-  unlet g:test_action_day
 enddef
 
 def g:Test_autocmd_before_show()
