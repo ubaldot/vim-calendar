@@ -1050,10 +1050,9 @@ enddef
 
 # Build horizontal separator line for the week grid.
 # is_header: true uses ┬ (top join), false uses ┼ (cross join).
-def WeekSepLine(is_header: bool): string
-  var sep = is_header ? '┬' : '┼'
-  return repeat('─', WEEK_TIME_COL) .. sep ..
-    join(range(7)->mapnew((_, _) => repeat('─', WEEK_DAY_COL)), sep)
+def WeekSepLine(join_char: string): string
+  return repeat('─', WEEK_TIME_COL) .. join_char ..
+    join(range(7)->mapnew((_, _) => repeat('─', WEEK_DAY_COL)), join_char)
 enddef
 
 # Build one data row: time column + 7 day cells separated by │.
@@ -1091,6 +1090,34 @@ def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
     last.year, week_num)
 enddef
 
+# Return the first event matching the given hour, or {} if none.
+def FindHourEvent(events: dict<any>, date_key: string, hour: number): dict<any>
+  for ev in get(events, date_key, [])
+    if str2nr(split(get(ev, 'start', '00:00'), ':')[0]) == hour
+      return ev
+    endif
+  endfor
+  return {}
+enddef
+
+# Set up the __WeekView__ buffer in window with the given buffer number,
+# repurposing it in-place.  Updates week_view_winid.  Returns true on success.
+def OpenWeekViewWindow(tabnew_bufnr: number): bool
+  var winnr = bufwinnr(tabnew_bufnr)
+  if winnr <= 0
+    return false
+  endif
+  win_gotoid(win_getid(winnr))
+  execute $'file {WEEK_BUF_NAME}'
+  setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified
+  setlocal textwidth=0 colorcolumn=0 fdc=0 nonu
+  if has('+relativenumber') || exists('+relativenumber')
+    setlocal nornu
+  endif
+  week_view_winid = win_getid()
+  return true
+enddef
+
 # Render (or re-render) the week view buffer for the week containing
 # (year, month, day).  Pass events as a dict keyed 'YYYY-MM-DD' → list of
 # {start: 'HH:MM', subject: '...', organizer: '...'}.
@@ -1105,38 +1132,27 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   var lines: list<string> = []
 
   lines->add(WeekHeaderStr(wdays, week_num))
-  lines->add(WeekSepLine(true))
+  lines->add(WeekSepLine('┬'))
 
   var day_labels = wdays->mapnew(
     (i, d) => CellText(printf('%d, %s', d.day, WEEK_DAY_FULL[i])))
   lines->add(WeekDataRow(' UTC+2', day_labels))
-  lines->add(WeekSepLine(false))
+  lines->add(WeekSepLine('┼'))
 
   for h in range(0, 23)
     var row1: list<string> = []
     var row2: list<string> = []
     for d in wdays
-      var key = printf('%04d-%02d-%02d', d.year, d.month, d.day)
-      var hour_ev: dict<any> = {}
-      for ev in get(events, key, [])
-        if str2nr(split(get(ev, 'start', '00:00'), ':')[0]) == h
-          hour_ev = ev
-          break
-        endif
-      endfor
-      if !empty(hour_ev)
-        var [l1, l2] = FormatEventCells(
-          get(hour_ev, 'subject', ''), get(hour_ev, 'organizer', ''))
-        row1->add(l1)
-        row2->add(l2)
-      else
-        row1->add('')
-        row2->add('')
-      endif
+      var ev = FindHourEvent(events, printf('%04d-%02d-%02d', d.year, d.month, d.day), h)
+      var [l1, l2] = empty(ev)
+        ? ['', '']
+        : FormatEventCells(get(ev, 'subject', ''), get(ev, 'organizer', ''))
+      row1->add(l1)
+      row2->add(l2)
     endfor
     lines->add(WeekDataRow(printf('%3d', h), row1))
-    lines->add(WeekDataRow('   ', row2))
-    lines->add(WeekSepLine(false))
+    lines->add(WeekDataRow('', row2))
+    lines->add(WeekSepLine('┼'))
   endfor
 
   var wv_buf = winbufnr(week_view_winid)
@@ -1163,27 +1179,14 @@ export def Show(year: number = -1, month: number = -1): string
     return ''
   endif
 
-  # Open a dedicated tab: calendar on the left (or right), week view on the other side.
+  # Open a dedicated tab: calendar on one side, week view on the other.
   tabnew
-  var tabnew_bufnr = bufnr('%')   # save the empty tabnew buffer to repurpose later
+  var tabnew_bufnr = bufnr('%')
   RenderView(y, m)
-
-  # After RenderView the calendar window is current; the original tabnew buffer
-  # is in the other window (left or right depending on position).
   var cal_winid = win_getid()
-  var tabnew_winnr = bufwinnr(tabnew_bufnr)
-  if tabnew_winnr > 0
-    win_gotoid(win_getid(tabnew_winnr))
-    execute $'file {WEEK_BUF_NAME}'
-    setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified
-    setlocal textwidth=0 colorcolumn=0 fdc=0 nonu
-    if has('+relativenumber') || exists('+relativenumber')
-      setlocal nornu
-    endif
-    week_view_winid = win_getid()
 
-    var today_day = str2nr(strftime('%d'))
-    RenderWeekView(y, m, today_day, {})
+  if OpenWeekViewWindow(tabnew_bufnr)
+    RenderWeekView(y, m, str2nr(strftime('%d')), {})
   endif
 
   win_gotoid(cal_winid)
