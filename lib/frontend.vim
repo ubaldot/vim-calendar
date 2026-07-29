@@ -2,7 +2,11 @@ vim9script
 
 import autoload "./backend.vim"
 
-const cal_bufname = '__Calendar'
+const cal_bufname    = '__Calendar'
+const WEEK_BUF_NAME  = '__WeekView__'
+const WEEK_TIME_COL  = 8
+const WEEK_DAY_COL   = 16
+const WEEK_DAY_FULL  = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 const weekdays: dict<list<string>> = {
   us: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
@@ -17,10 +21,9 @@ var cfg_show_week_number = false
 var cfg_number_of_months = 3
 var cfg_holidays: dict<any> = {}
 var cfg_search_grep = 'internal'
-var cfg_diaries: dict<any> = {My_Diary: {path: '~/my_diary', resolution: 'day'}}
+var cfg_diaries: dict<any> = {My_Diary: {path: '~/my_diary', resolution: 'month'}}
 var cfg_active_diary = 'My_Diary'
 var cfg_diary_path = '~/my_diary'
-var cfg_diary_resolution = 'day'
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
 var popup_id = -1
@@ -33,11 +36,7 @@ var state_base_year = 0
 var state_base_month = 0
 var state_blocks: list<dict<any>> = []
 var state_diary_rows: dict<string> = {}
-
-# Normalize diary resolution to supported values.
-def NormalizeResolution(v: any): string
-  return type(v) == v:t_string && tolower(v) ==# 'month' ? 'month' : 'day'
-enddef
+var week_view_winid = -1
 
 # Normalize window placement to supported values.
 def NormalizePos(v: any): string
@@ -91,7 +90,6 @@ def InitVariables(): bool
   var active = cfg_diaries[cfg_active_diary]
 
   cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
-  cfg_diary_resolution = NormalizeResolution(has_key(active, 'resolution') ? active.resolution : get(cfg, 'diary_resolution', 'month'))
 
   return true
 
@@ -192,14 +190,9 @@ def IsHoliday(year: number, month: number, day: number): bool
 enddef
 
 # Build diary file path for current resolution mode.
-def DiaryFilePath(year: number, month: number, day: number): string
+def DiaryFilePath(year: number, month: number, _day: number): string
   var year_dir = $"{expand(cfg_diary_path)}/{printf('%04d', year)}"
-  var m = MonthName(month)
-
-  if cfg_diary_resolution ==# 'month'
-    return $"{year_dir}/{m}.md"
-  endif
-  return $"{year_dir}/{m}/{printf('%02d', day)}.md"
+  return $"{year_dir}/{MonthName(month)}.md"
 enddef
 
 # Build one month text block and local highlight positions.
@@ -705,7 +698,6 @@ def ActivateDiary(name: string): bool
   cfg_active_diary = name
   var d = cfg_diaries[name]
   cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
-  cfg_diary_resolution = NormalizeResolution(has_key(d, 'resolution') ? d.resolution : 'day')
   return true
 enddef
 
@@ -821,17 +813,30 @@ def Action(arg: string = '')
     action_name = cfg_action
   endif
   call(function(action_name), [day, month, year, week])
+
+  # Always refresh week view when visible
+  if week_view_winid > 0 && win_id2win(week_view_winid) > 0
+    RenderWeekView(year, month, day, {})
+  endif
 enddef
 
 # Close split window or popup calendar.
 def Close()
   if popup_id > 0
-    # Calendar in popup case
     popup_close(popup_id)
     popup_id = -1
   else
-    # Calendar in window case
-    bwipeout!
+    week_view_winid = -1
+    if tabpagenr('$') > 1
+      tabclose!
+    else
+      for bname in [cal_bufname, WEEK_BUF_NAME]
+        var bn = bufnr(bname)
+        if bn > 0
+          execute $'bwipeout! {bn}'
+        endif
+      endfor
+    endif
   endif
 enddef
 
@@ -861,13 +866,6 @@ def OpenDiaryPage(day: number, month: number, year: number, week: number)
   var year_dir = $"{diary_root}/{printf('%04d', year)}"
   if !EnsureDiaryDir(year_dir)
     return
-  endif
-
-  if cfg_diary_resolution ==# 'day'
-    var month_dir = $"{year_dir}/{MonthName(month)}"
-    if !EnsureDiaryDir(month_dir)
-      return
-    endif
   endif
 
   var file = substitute(DiaryFilePath(year, month, day), ' ', '\\ ', 'g')
@@ -1004,6 +1002,152 @@ def PopupFilter(id: number, key: string): bool
   return false
 enddef
 
+# ─── Week view helpers ───────────────────────────────────────────────────────
+
+# Convert a Gregorian date to a Julian Day Number.
+def DateToJDN(year: number, month: number, day: number): number
+  var a = (14 - month) / 12
+  var y = year + 4800 - a
+  var m = month + 12 * a - 3
+  return day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045
+enddef
+
+# Convert a Julian Day Number back to a Gregorian date dict {year, month, day}.
+def JDNToDate(jdn: number): dict<any>
+  var a = jdn + 32044
+  var b = (4 * a + 3) / 146097
+  var c = a - (146097 * b) / 4
+  var d = (4 * c + 3) / 1461
+  var e = c - (1461 * d) / 4
+  var m = (5 * e + 2) / 153
+  return {
+    day:   e - (153 * m + 2) / 5 + 1,
+    month: m + 3 - 12 * (m / 10),
+    year:  100 * b + d - 4800 + m / 10,
+  }
+enddef
+
+# Return list of 7 date dicts {year, month, day} for Mon–Sun of the ISO week
+# that contains the given date.
+def WeekDays(year: number, month: number, day: number): list<dict<any>>
+  var wd = WeekdayForDate(year, month, day)   # 1=Mon .. 7=Sun
+  var mon_jdn = DateToJDN(year, month, day) - (wd - 1)
+  return range(7)->mapnew((i, _) => JDNToDate(mon_jdn + i))
+enddef
+
+# Return the ISO 8601 week number for the given date.
+def ISOWeekNum(year: number, month: number, day: number): number
+  var wd = WeekdayForDate(year, month, day)
+  var thu_jdn = DateToJDN(year, month, day) + (4 - wd)
+  var thu = JDNToDate(thu_jdn)
+  var jan4_jdn = DateToJDN(thu.year, 1, 4)
+  var jan4_wd = (jan4_jdn + 1) % 7
+  if jan4_wd == 0
+    jan4_wd = 7
+  endif
+  return (thu_jdn - (jan4_jdn - (jan4_wd - 1))) / 7 + 1
+enddef
+
+# Build horizontal separator line for the week grid.
+# is_header: true uses ┬ (top join), false uses ┼ (cross join).
+def WeekSepLine(is_header: bool): string
+  var sep = is_header ? '┬' : '┼'
+  return repeat('─', WEEK_TIME_COL) .. sep ..
+    join(range(7)->mapnew((_, _) => repeat('─', WEEK_DAY_COL)), sep)
+enddef
+
+# Build one data row: time column + 7 day cells separated by │.
+def WeekDataRow(time_cell: string, day_cells: list<string>): string
+  var tc = printf('%-*s', WEEK_TIME_COL, strcharpart(time_cell, 0, WEEK_TIME_COL))
+  return tc .. '│' .. join(day_cells->mapnew(
+    (_, c) => printf('%-*s', WEEK_DAY_COL, strcharpart(c, 0, WEEK_DAY_COL))), '│')
+enddef
+
+# Truncate / pad text to fit in a day cell (1-space left margin).
+def CellText(text: string): string
+  var max_len = WEEK_DAY_COL - 1
+  var content = strcharlen(text) > max_len
+    ? strcharpart(text, 0, max_len - 3) .. '...'
+    : text
+  return ' ' .. content
+enddef
+
+# Return [row1, row2] strings for an event cell.
+def FormatEventCells(subject: string, organizer: string): list<string>
+  return [CellText(subject), CellText('(' .. organizer .. ')')]
+enddef
+
+# Build the week header string, e.g. "27 - 31 Jul 2026 (week 31)".
+def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
+  var first = wdays[0]
+  var last  = wdays[6]
+  if first.month == last.month
+    return printf('%d - %d %s %d (week %d)',
+      first.day, last.day, MonthName(first.month), first.year, week_num)
+  endif
+  return printf('%d %s - %d %s %d (week %d)',
+    first.day, MonthName(first.month)[: 2],
+    last.day,  MonthName(last.month)[: 2],
+    last.year, week_num)
+enddef
+
+# Render (or re-render) the week view buffer for the week containing
+# (year, month, day).  Pass events as a dict keyed 'YYYY-MM-DD' → list of
+# {start: 'HH:MM', subject: '...', organizer: '...'}.
+export def RenderWeekView(year: number, month: number, day: number, events: dict<any>)
+  if week_view_winid <= 0 || win_id2win(week_view_winid) == 0
+    return
+  endif
+
+  var wdays    = WeekDays(year, month, day)
+  var week_num = ISOWeekNum(year, month, day)
+
+  var lines: list<string> = []
+
+  lines->add(WeekHeaderStr(wdays, week_num))
+  lines->add(WeekSepLine(true))
+
+  var day_labels = wdays->mapnew(
+    (i, d) => CellText(printf('%d, %s', d.day, WEEK_DAY_FULL[i])))
+  lines->add(WeekDataRow(' UTC+2', day_labels))
+  lines->add(WeekSepLine(false))
+
+  for h in range(0, 23)
+    var row1: list<string> = []
+    var row2: list<string> = []
+    for d in wdays
+      var key = printf('%04d-%02d-%02d', d.year, d.month, d.day)
+      var hour_ev: dict<any> = {}
+      for ev in get(events, key, [])
+        if str2nr(split(get(ev, 'start', '00:00'), ':')[0]) == h
+          hour_ev = ev
+          break
+        endif
+      endfor
+      if !empty(hour_ev)
+        var [l1, l2] = FormatEventCells(
+          get(hour_ev, 'subject', ''), get(hour_ev, 'organizer', ''))
+        row1->add(l1)
+        row2->add(l2)
+      else
+        row1->add('')
+        row2->add('')
+      endif
+    endfor
+    lines->add(WeekDataRow(printf('%3d', h), row1))
+    lines->add(WeekDataRow('   ', row2))
+    lines->add(WeekSepLine(false))
+  endfor
+
+  var wv_buf = winbufnr(week_view_winid)
+  setbufvar(wv_buf, '&modifiable', 1)
+  deletebufline(wv_buf, 1, '$')
+  setbufline(wv_buf, 1, lines)
+  setbufvar(wv_buf, '&modifiable', 0)
+enddef
+
+# ─── End week view helpers ────────────────────────────────────────────────────
+
 # Main entrypoint used by :Calendar command.
 export def Show(year: number = -1, month: number = -1): string
 
@@ -1011,13 +1155,38 @@ export def Show(year: number = -1, month: number = -1): string
     return ''
   endif
 
-  # Process :Calendar arguments
   var y = year == -1 ? str2nr(strftime('%Y')) : year
   var m = month == -1 ? str2nr(strftime('%m')) : month
 
-  # Actually render the calendar
+  if cfg_position ==# 'popup'
+    RenderView(y, m)
+    return ''
+  endif
+
+  # Open a dedicated tab: calendar on the left (or right), week view on the other side.
+  tabnew
+  var tabnew_bufnr = bufnr('%')   # save the empty tabnew buffer to repurpose later
   RenderView(y, m)
 
+  # After RenderView the calendar window is current; the original tabnew buffer
+  # is in the other window (left or right depending on position).
+  var cal_winid = win_getid()
+  var tabnew_winnr = bufwinnr(tabnew_bufnr)
+  if tabnew_winnr > 0
+    win_gotoid(win_getid(tabnew_winnr))
+    execute $'file {WEEK_BUF_NAME}'
+    setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified
+    setlocal textwidth=0 colorcolumn=0 fdc=0 nonu
+    if has('+relativenumber') || exists('+relativenumber')
+      setlocal nornu
+    endif
+    week_view_winid = win_getid()
+
+    var today_day = str2nr(strftime('%d'))
+    RenderWeekView(y, m, today_day, {})
+  endif
+
+  win_gotoid(cal_winid)
   return ''
 enddef
 
