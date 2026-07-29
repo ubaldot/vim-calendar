@@ -93,9 +93,8 @@ def InitVariables(): bool
 
   var active = cfg_diaries[cfg_active_diary]
 
-  cfg_diary_path        = has_key(active, 'path')             ? active.path             : '~/my_diary'
-  cfg_appointments_path = get(active, 'appointments_path', '')
-  cfg_connect           = get(active, 'connect', '')
+  cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
+  cfg_connect    = get(active, 'connect', '')
 
   var c = get(cfg, 'connect', {})
   if !empty(c)
@@ -708,9 +707,9 @@ def ActivateDiary(name: string): bool
   g:calendar_config.active_diary = name
   cfg_active_diary      = name
   var d                 = cfg_diaries[name]
-  cfg_diary_path        = has_key(d, 'path') ? d.path : cfg_diary_path
-  cfg_appointments_path = get(d, 'appointments_path', '')
-  cfg_connect           = get(d, 'connect', '')
+  cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
+  cfg_connect    = get(d, 'connect', '')
+  cfg_appointments_path = ''   # reset; will be set by CallConnectHook return value
   week_cache            = {}   # new diary has its own appointments
   return true
 enddef
@@ -1194,13 +1193,21 @@ enddef
 # ─── End week view helpers ────────────────────────────────────────────────────
 
 # Call the active diary's connect hook for the given week date.
+# The hook must return the path it wrote to on success, '' on failure.
+# vim-calendar then calls LoadAppointments on that path.
 def CallConnectHook(year: number = -1, month: number = -1, day: number = -1)
-  if !empty(cfg_connect) && exists('*' .. cfg_connect)
-    var fy = year  > 0 ? year  : str2nr(strftime('%Y'))
-    var fm = month > 0 ? month : str2nr(strftime('%m'))
-    var fd = day   > 0 ? day   : str2nr(strftime('%d'))
-    call(function(cfg_connect), [fy, fm, fd])
+  if empty(cfg_connect) || !exists('*' .. cfg_connect)
+    return
   endif
+  var fy = year  > 0 ? year  : str2nr(strftime('%Y'))
+  var fm = month > 0 ? month : str2nr(strftime('%m'))
+  var fd = day   > 0 ? day   : str2nr(strftime('%d'))
+  var path = call(function(cfg_connect), [fy, fm, fd])
+  if empty(path)
+    return
+  endif
+  cfg_appointments_path = path
+  LoadAppointments(path)
 enddef
 
 # Parse the JSON at path and cache/render for the given week.
