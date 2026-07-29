@@ -594,6 +594,20 @@ def PopupCycleDiary(step: number): bool
   else
     RenderView(state_base_year, state_base_month)
   endif
+
+  # Update week view: fetch if new diary has a connect hook, else clear it.
+  if bufnr(WEEK_BUF_NAME) > 0
+    if !empty(cfg_connect)
+      CallConnectHook()
+    else
+      var ty = str2nr(strftime('%Y'))
+      var tm = str2nr(strftime('%m'))
+      var td = str2nr(strftime('%d'))
+      week_cache = {}
+      RenderWeekView(ty, tm, td, {})
+    endif
+  endif
+
   return true
 enddef
 
