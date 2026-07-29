@@ -27,7 +27,7 @@ var cfg_diary_path = '~/my_diary'
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
 var cfg_appointments_path = ''
-var cfg_connect: dict<string> = {}   # {fetch: 'FuncName'} — optional backend hook
+var cfg_connect = ''   # global function name called to fetch appointments for active diary
 var popup_id = -1
 var help_popup_id = -1
 var popup_year = 0
@@ -91,11 +91,14 @@ def InitVariables(): bool
 
   var active = cfg_diaries[cfg_active_diary]
 
-  cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
+  cfg_diary_path        = has_key(active, 'path')             ? active.path             : '~/my_diary'
   cfg_appointments_path = get(active, 'appointments_path', '')
+  cfg_connect           = get(active, 'connect', '')
 
   var c = get(cfg, 'connect', {})
-  cfg_connect = type(c) == v:t_dict ? c : {}
+  if !empty(c)
+    echomsg "[Calendar] 'connect' at top level is ignored; set it per-diary in diaries_dict."
+  endif
 
   return true
 
@@ -701,9 +704,11 @@ def ActivateDiary(name: string): bool
     return false
   endif
   g:calendar_config.active_diary = name
-  cfg_active_diary = name
-  var d = cfg_diaries[name]
-  cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
+  cfg_active_diary      = name
+  var d                 = cfg_diaries[name]
+  cfg_diary_path        = has_key(d, 'path') ? d.path : cfg_diary_path
+  cfg_appointments_path = get(d, 'appointments_path', '')
+  cfg_connect           = get(d, 'connect', '')
   return true
 enddef
 
@@ -732,10 +737,9 @@ def SwitchDiaryAtCursor(): bool
   endif
 
   var curp = getpos('.')
-
   RenderView(state_base_year, state_base_month)
-
   setpos('.', curp)
+  CallConnectHook()
   return true
 enddef
 
@@ -1171,6 +1175,13 @@ enddef
 
 # ─── End week view helpers ────────────────────────────────────────────────────
 
+# Call the active diary's connect hook if configured.
+def CallConnectHook()
+  if !empty(cfg_connect) && exists('*' .. cfg_connect)
+    call(function(cfg_connect), [])
+  endif
+enddef
+
 # Parse the JSON at path and refresh the week view.
 # JSON format: list of {start, end, subject, organizer, location, body}.
 export def LoadAppointments(path: string)
@@ -1239,12 +1250,7 @@ export def CalendarToggle()
   var m = str2nr(strftime('%m'))
   Show(y, m)
   cal_tab_winid = win_getid()
-
-  # Call the configured backend fetch hook, if any.
-  var fetch_fn = get(cfg_connect, 'fetch', '')
-  if !empty(fetch_fn) && exists('*' .. fetch_fn)
-    call(function(fetch_fn), [])
-  endif
+  CallConnectHook()
 enddef
 
 # Main entrypoint used by :Calendar command.
