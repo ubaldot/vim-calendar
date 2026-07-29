@@ -27,6 +27,7 @@ var cfg_diary_path = '~/my_diary'
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
 var cfg_appointments_path = ''
+var cfg_connect: dict<string> = {}   # {fetch: 'FuncName'} — optional backend hook
 var popup_id = -1
 var help_popup_id = -1
 var popup_year = 0
@@ -92,6 +93,9 @@ def InitVariables(): bool
 
   cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
   cfg_appointments_path = get(active, 'appointments_path', '')
+
+  var c = get(cfg, 'connect', {})
+  cfg_connect = type(c) == v:t_dict ? c : {}
 
   return true
 
@@ -1235,6 +1239,12 @@ export def CalendarToggle()
   var m = str2nr(strftime('%m'))
   Show(y, m)
   cal_tab_winid = win_getid()
+
+  # Call the configured backend fetch hook, if any.
+  var fetch_fn = get(cfg_connect, 'fetch', '')
+  if !empty(fetch_fn) && exists('*' .. fetch_fn)
+    call(function(fetch_fn), [])
+  endif
 enddef
 
 # Main entrypoint used by :Calendar command.
