@@ -1149,13 +1149,10 @@ enddef
 # (year, month, day).  Pass events as a dict keyed 'YYYY-MM-DD' → list of
 # {start: 'HH:MM', subject: '...', organizer: '...'}.
 export def RenderWeekView(year: number, month: number, day: number, events: dict<any>)
-  # If week_view_winid is stale, try to recover via buffer name.
-  if week_view_winid <= 0 || win_id2win(week_view_winid) == 0
-    var bwv = bufwinnr(WEEK_BUF_NAME)
-    if bwv <= 0
-      return
-    endif
-    week_view_winid = win_getid(bwv)
+  # Use buffer number directly — works regardless of which tab is currently active.
+  var wv_buf = bufnr(WEEK_BUF_NAME)
+  if wv_buf <= 0
+    return
   endif
 
   current_week_key = WeekCacheKey(year, month, day)
@@ -1188,7 +1185,6 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
     lines->add(WeekSepLine('┼'))
   endfor
 
-  var wv_buf = winbufnr(week_view_winid)
   setbufvar(wv_buf, '&modifiable', 1)
   deletebufline(wv_buf, 1, '$')
   setbufline(wv_buf, 1, lines)
