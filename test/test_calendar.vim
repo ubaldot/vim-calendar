@@ -23,7 +23,7 @@ enddef
 def g:Test_calendar_basic()
   ResetConfig()
   CalendarToggle 1998, 10
-  WaitForAssert(() => assert_equal(2, winnr('$')))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
   assert_equal('row', winlayout()[0])
   assert_equal('Hit "?" for help', getline(1))
   assert_match('October 1998', join(getline(1, '$'), "\n"))
@@ -36,12 +36,12 @@ def g:Test_calendar_arguments()
   var current_month_name = strftime('%B')
 
   CalendarToggle 2031
-  WaitForAssert(() => assert_equal(2, winnr('$')))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
   assert_match($'{current_month_name}\s\+2031', join(getline(1, '$'), "\n"))
   execute "normal q"
 
   CalendarToggle 2032, 5
-  WaitForAssert(() => assert_equal(2, winnr('$')))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
   assert_match('May\s\+2032', join(getline(1, '$'), "\n"))
   execute "normal q"
   assert_equal(1, winnr('$'))
@@ -51,7 +51,7 @@ def g:Test_calendar_position_right()
   ResetConfig()
   g:calendar_config.position = 'right'
   CalendarToggle 2020, 2
-  WaitForAssert(() => assert_equal(2, winnr('$')))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
   assert_equal('row', winlayout()[0])
   assert_match('February 2020', join(getline(1, '$'), "\n"))
   :%bw!
@@ -71,7 +71,7 @@ def g:Test_show_week_numbers_column()
   ResetConfig()
   g:calendar_config.show_week_number = true
   CalendarToggle 2026, 7
-  WaitForAssert(() => assert_equal(2, winnr('$')))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
   assert_match('^WK  ', getline(4))
   assert_match('^\s*\d\{2}\s', getline(5))
   :%bw!
@@ -90,7 +90,7 @@ def g:Test_action_from_config()
   g:test_action_called = 0
   g:calendar_config.action = 'g:MyTestCalAction'
   CalendarToggle 2026, 7
-  WaitForAssert(() => assert_equal(2, winnr('$')))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
   call cursor(5, 11)
   execute "normal \<CR>"
   assert_equal(0, g:test_action_called)
@@ -107,7 +107,7 @@ def g:Test_autocmd_before_show()
   augroup END
 
   CalendarToggle 2024, 1
-  WaitForAssert(() => assert_equal(2, winnr('$')))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
   assert_equal(1, g:test_before_show)
   execute "normal q"
   augroup CalendarTestAu
@@ -125,7 +125,7 @@ def g:Test_diary_cycle_split_tab_keys()
   g:calendar_config.active_diary = 'Alpha'
 
   CalendarToggle 2026, 7
-  WaitForAssert(() => assert_equal(2, winnr('$')))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
 
   feedkeys("\<Tab>", 'xt')
   WaitForAssert(() => assert_equal('Beta', g:calendar_config.active_diary))

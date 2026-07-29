@@ -1,7 +1,6 @@
 vim9script
 
-# Functions for backend computations, like Zeller's congruence formula,
-# computation of calendar of a given month/year, etc
+# Backend computations: date math (JDN), ISO week, and calendar grid generation.
 export const month_num_to_str = {
   01: "January",
   02: "February",
@@ -33,10 +32,10 @@ def DaysInMonth(year: number, month: number): number
     return 30
 enddef
 
-# Build calendar for a given date
-# Returns weekday of a date (0=Monday, 6=Sunday)
+# ─── Date helpers (private) ───────────────────────────────────────────────────
+
+# Weekday via Zeller's congruence (0=Monday..6=Sunday).
 def WeekdayOfDate(year: number, month: number, day: number): number
-    # Implement modified Zeller's congruence
     # Zeller's h: 0=Saturday, ..., 6=Friday
     var month_adj = month
     var year_adj = year
@@ -49,7 +48,97 @@ def WeekdayOfDate(year: number, month: number, day: number): number
     return (h + 5) % 7
 enddef
 
-# Convert ISO (Monday-start) calendar to US (Sunday-start) calendar
+# ISO 8601 week number via day-of-year.
+def ISOWeekNumber(year: number, month: number, day: number): number
+    var wd = WeekdayOfDate(year, month, day)
+
+    # Day-of-year
+    var dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+        dim[1] = 29
+    endif
+    var doy = day
+    for i in range(0, month - 1)
+        if i > 0
+            doy += dim[i - 1]
+        endif
+    endfor
+
+    # Thursday of the week
+    var doy_thu = doy + (3 - wd)
+
+    # Days in year
+    var days_in_year = 365
+    if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+        days_in_year = 366
+    endif
+
+    # Determine ISO year
+    var iso_year = year
+    if doy_thu < 1
+        iso_year -= 1
+        if (iso_year % 4 == 0 && iso_year % 100 != 0) || (iso_year % 400 == 0)
+            doy_thu += 366
+        else
+            doy_thu += 365
+        endif
+    elseif doy_thu > days_in_year
+        iso_year += 1
+        doy_thu -= days_in_year
+    endif
+
+    # Week 1 start: Monday of the week containing Jan 4
+    var jan4_wd = WeekdayOfDate(iso_year, 1, 4)
+    var week1_start = 4 - jan4_wd
+
+    # ISO week number
+    return float2nr(1 + floor((doy_thu - week1_start - 1) / 7))
+enddef
+
+# Julian Day Number (Fliegel & Van Flandern, 1968).
+export def DateToJDN(year: number, month: number, day: number): number
+  var a = (14 - month) / 12
+  var y = year + 4800 - a
+  var m = month + 12 * a - 3
+  return day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045
+enddef
+
+# Inverse of DateToJDN (same paper).
+export def JDNToDate(jdn: number): dict<any>
+  var a = jdn + 32044
+  var b = (4 * a + 3) / 146097
+  var c = a - (146097 * b) / 4
+  var d = (4 * c + 3) / 1461
+  var e = c - (1461 * d) / 4
+  var m = (5 * e + 2) / 153
+  return {
+    day:   e - (153 * m + 2) / 5 + 1,
+    month: m + 3 - 12 * (m / 10),
+    year:  100 * b + d - 4800 + m / 10,
+  }
+enddef
+
+# ─── Public date API ──────────────────────────────────────────────────────────
+
+# ISO weekday (1=Mon..7=Sun), backed by Zeller's congruence.
+export def WeekdayForDate(year: number, month: number, day: number): number
+  return WeekdayOfDate(year, month, day) + 1
+enddef
+
+# ISO week number, backed by the day-of-year algorithm.
+export def ISOWeekNum(year: number, month: number, day: number): number
+  return ISOWeekNumber(year, month, day)
+enddef
+
+# List of 7 date dicts {year, month, day} for Mon–Sun of the ISO week
+# containing (year, month, day).
+export def WeekDays(year: number, month: number, day: number): list<dict<any>>
+  var wd = WeekdayOfDate(year, month, day)   # 0=Mon .. 6=Sun
+  var mon_jdn = DateToJDN(year, month, day) - wd
+  return range(7)->mapnew((i, _) => JDNToDate(mon_jdn + i))
+enddef
+
+# ─── Calendar grid helpers ────────────────────────────────────────────────────
 export def ConvertISOtoUS(iso_calendar: dict<list<list<number>>>): dict<list<list<number>>>
     # Save heading (only key)
     const month_year = keys(iso_calendar)[0]
@@ -103,53 +192,6 @@ export def ConvertISOtoUS(iso_calendar: dict<list<list<number>>>): dict<list<lis
     # endif
 
     return {[month_year]: us_calendar_values}
-enddef
-
-# Compute ISO 8601 week number for a given date
-def ISOWeekNumber(year: number, month: number, day: number): number
-    var wd = WeekdayOfDate(year, month, day)
-
-    # Day-of-year
-    var dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-        dim[1] = 29
-    endif
-    var doy = day
-    for i in range(0, month - 1)
-        if i > 0
-            doy += dim[i - 1]
-        endif
-    endfor
-
-    # Thursday of the week
-    var doy_thu = doy + (3 - wd)
-
-    # Days in year
-    var days_in_year = 365
-    if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-        days_in_year = 366
-    endif
-
-    # Determine ISO year
-    var iso_year = year
-    if doy_thu < 1
-        iso_year -= 1
-        if (iso_year % 4 == 0 && iso_year % 100 != 0) || (iso_year % 400 == 0)
-            doy_thu += 366
-        else
-            doy_thu += 365
-        endif
-    elseif doy_thu > days_in_year
-        iso_year += 1
-        doy_thu -= days_in_year
-    endif
-
-    # Week 1 start: Monday of the week containing Jan 4
-    var jan4_wd = WeekdayOfDate(iso_year, 1, 4)
-    var week1_start = 4 - jan4_wd
-
-    # ISO week number
-    return float2nr(1 + floor((doy_thu - week1_start - 1) / 7))
 enddef
 
 # Generate calendar with optional ISO week numbers at the end, 0=Monday

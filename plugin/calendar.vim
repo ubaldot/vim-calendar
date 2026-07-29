@@ -13,7 +13,8 @@ endif
 g:loaded_calendar = true
 
 import autoload "../lib/frontend.vim"
+import autoload "../lib/week_view.vim"
 
 command! -nargs=* CalendarToggle   frontend.CalendarToggle(<args>)
-command! -nargs=0 CalendarRefresh  frontend.CalendarRefresh()
+command! -nargs=0 CalendarRefresh  week_view.CalendarRefresh()
 command! -nargs=* CalendarSearch   frontend.Search(<f-args>)

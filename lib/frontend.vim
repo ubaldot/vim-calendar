@@ -1,12 +1,10 @@
 vim9script
 
 import autoload "./backend.vim"
+import autoload "./highlights.vim"
+import autoload "./week_view.vim"
 
-const cal_bufname    = '__Calendar'
-const WEEK_BUF_NAME  = '__WeekView__'
-const WEEK_TIME_COL  = 8
-const WEEK_DAY_COL   = 16
-const WEEK_DAY_FULL  = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const cal_bufname = '__Calendar'
 
 const weekdays: dict<list<string>> = {
   us: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
@@ -26,7 +24,6 @@ var cfg_active_diary = 'My_Diary'
 var cfg_diary_path = '~/my_diary'
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
-var cfg_connect = ''   # connect function name for the active diary's appointment source
 var popup_id = -1
 var help_popup_id = -1
 var popup_year = 0
@@ -37,8 +34,7 @@ var state_base_year = 0
 var state_base_month = 0
 var state_blocks: list<dict<any>> = []
 var state_diary_rows: dict<string> = {}
-var week_cache: dict<dict<list<any>>> = {}
-var current_week_key = ''   # WeekCacheKey of the week currently shown in __WeekView__
+var state_curr_week_num = str2nr(strftime('%V'))
 
 # Normalize window placement to supported values.
 def NormalizePos(v: any): string
@@ -92,7 +88,7 @@ def InitVariables(): bool
   var active = cfg_diaries[cfg_active_diary]
 
   cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
-  cfg_connect    = get(active, 'connect', '')
+  week_view.SetConnectFunc(get(active, 'connect', ''))
 
   var c = get(cfg, 'connect', {})
   if !empty(c)
@@ -445,7 +441,7 @@ def OpenCalendarWindow(): number
   endif
 
   execute $"file {cal_bufname}"
-  setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified
+  setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified nomodifiable
   if exists('+winfixbuf')
     setlocal winfixbuf
   endif
@@ -457,53 +453,18 @@ def OpenCalendarWindow(): number
   return win_getid()
 enddef
 
+# Update only the CalCurrWeek match in the current window.
+def UpdateCurrWeekHighlight()
+  highlights.UpdateCurrWeek(state_curr_week_num)
+enddef
+
 # Apply match highlights to the current calendar buffer.
 def ApplyHighlights(view: dict<any>)
-  if exists('w:cal_today') | silent! matchdelete(w:cal_today) | endif
-  if exists('w:cal_sat') | silent! matchdelete(w:cal_sat) | endif
-  if exists('w:cal_sun') | silent! matchdelete(w:cal_sun) | endif
-  if exists('w:cal_holiday') | silent! matchdelete(w:cal_holiday) | endif
-  if exists('w:cal_week') | silent! matchdelete(w:cal_week) | endif
-  if exists('w:cal_weekdays') | silent! matchdelete(w:cal_weekdays) | endif
-  if exists('w:cal_help') | silent! matchdelete(w:cal_help) | endif
-  if exists('w:cal_header') | silent! matchdelete(w:cal_header) | endif
-  if exists('w:cal_currlist') | silent! matchdelete(w:cal_currlist) | endif
-
-  if !empty(view.today) | w:cal_today = matchaddpos('CalToday', view.today, 40) | endif
-  if !empty(view.sat) | w:cal_sat = matchaddpos('CalSaturday', view.sat, 30) | endif
-  if !empty(view.sun) | w:cal_sun = matchaddpos('CalSunday', view.sun, 30) | endif
-  if !empty(view.holiday) | w:cal_holiday = matchaddpos('CalHoliday', view.holiday, 32) | endif
-  if !empty(view.week) | w:cal_week = matchaddpos('CalWeeknm', view.week, 35) | endif
-
-  w:cal_help = matchadd('CalHelpHint', '^Hit "?" for help$', 20)
-  w:cal_header = matchadd('CalHeader', '^\s*[A-Za-z]\+\s\+\d\{4}$', 25)
-  w:cal_currlist = matchadd('CalCurrList', '^(\*).*$', 15)
-  w:cal_weekdays = matchadd('CalWeekdays', '^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$', 22)
+  highlights.Apply(view, state_curr_week_num, WeekNumberEnabled())
 enddef
 
 def ApplyPopupHighlights(winid: number, view: dict<any>)
-  if winid <= 0
-    return
-  endif
-  if !empty(view.today)
-    win_execute(winid, $"call matchaddpos('CalToday', {string(view.today)}, 40)")
-  endif
-  if !empty(view.sat)
-    win_execute(winid, $"call matchaddpos('CalSaturday', {string(view.sat)}, 30)")
-  endif
-  if !empty(view.sun)
-    win_execute(winid, $"call matchaddpos('CalSunday', {string(view.sun)}, 30)")
-  endif
-  if !empty(view.holiday)
-    win_execute(winid, $"call matchaddpos('CalHoliday', {string(view.holiday)}, 32)")
-  endif
-  if !empty(view.week)
-    win_execute(winid, $"call matchaddpos('CalWeeknm', {string(view.week)}, 35)")
-  endif
-  win_execute(winid, 'call matchadd(''CalHelpHint'', ''^Hit "?" for help$'', 20)')
-  win_execute(winid, 'call matchadd(''CalHeader'', ''^\s*[A-Za-z]\+\s\+\d\{4}$'', 25)')
-  win_execute(winid, 'call matchadd(''CalCurrList'', ''^(\*).*$'', 15)')
-  win_execute(winid, 'call matchadd(''CalWeekdays'', ''^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$'', 22)')
+  highlights.ApplyPopup(winid, view, WeekNumberEnabled())
 enddef
 
 def PopupSetSelectedDay(index: number)
@@ -594,15 +555,14 @@ def PopupCycleDiary(step: number): bool
   endif
 
   # Update week view: fetch if new diary has a connect hook, else clear it.
-  if bufnr(WEEK_BUF_NAME) > 0
-    if !empty(cfg_connect)
-      CallConnectHook()
+  if bufnr(week_view.WEEK_BUF_NAME) > 0
+    if week_view.HasConnectFunc()
+      week_view.CallConnectHook()
     else
       var ty = str2nr(strftime('%Y'))
       var tm = str2nr(strftime('%m'))
       var td = str2nr(strftime('%d'))
-      week_cache = {}
-      RenderWeekView(ty, tm, td, {})
+      week_view.RenderWeekView(ty, tm, td, {})
     endif
   endif
 
@@ -614,7 +574,7 @@ def PopupOpenSelectedDay(): bool
     return false
   endif
   var day = popup_day_cells[popup_day_index].day
-  var week = WeekdayForDate(popup_year, popup_month, day)
+  var week = backend.WeekdayForDate(popup_year, popup_month, day)
   var action_name = 'OpenDiaryPage'
   if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
     action_name = cfg_action
@@ -687,19 +647,6 @@ def RenderView(base_year: number, base_month: number)
   win_execute(winid, 'normal! zv')
 enddef
 
-# Compute ISO weekday (1=Mon..7=Sun) for a specific date.
-def WeekdayForDate(year: number, month: number, day: number): number
-  var iso = values(backend.CalendarMonth_iso8601(year, month, false))[0]
-  for row in iso
-    for idx in range(0, 6)
-      if row[idx] == day
-        return idx + 1
-      endif
-    endfor
-  endfor
-  return 0
-enddef
-
 # Resolve the month block under cursor in current rendered view.
 def FindBlockAtCursor(): dict<any>
   var l = line('.')
@@ -720,8 +667,7 @@ def ActivateDiary(name: string): bool
   cfg_active_diary      = name
   var d                 = cfg_diaries[name]
   cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
-  cfg_connect    = get(d, 'connect', '')
-  week_cache     = {}   # new diary has its own appointments
+  week_view.SetConnectFunc(get(d, 'connect', ''))   # clears week_cache for new diary
   return true
 enddef
 
@@ -752,7 +698,7 @@ def SwitchDiaryAtCursor(): bool
   var curp = getpos('.')
   RenderView(state_base_year, state_base_month)
   setpos('.', curp)
-  CallConnectHook()
+  week_view.CallConnectHook()
   return true
 enddef
 
@@ -829,16 +775,14 @@ def Action(arg: string = '')
 
   var month = block.month
   var year = block.year
-  var week = WeekdayForDate(year, month, day)
+  var week = backend.WeekdayForDate(year, month, day)
 
   # When the week view is open, <CR> navigates it — don't open a diary page.
-  if bufnr(WEEK_BUF_NAME) > 0
-    var cache_key = WeekCacheKey(year, month, day)
-    if has_key(week_cache, cache_key)
-      RenderWeekView(year, month, day, week_cache[cache_key])
-    else
-      CallConnectHook(year, month, day)
-      RenderWeekView(year, month, day, {})
+  if bufnr(week_view.WEEK_BUF_NAME) > 0
+    week_view.NavigateWeekView(year, month, day)
+    state_curr_week_num = backend.ISOWeekNum(year, month, day)
+    if WeekNumberEnabled()
+      UpdateCurrWeekHighlight()
     endif
     return
   endif
@@ -860,7 +804,7 @@ def Close()
     if tabpagenr('$') > 1
       tabclose!
     else
-      for bname in [cal_bufname, WEEK_BUF_NAME]
+      for bname in [cal_bufname, week_view.WEEK_HDR_BUF_NAME, week_view.WEEK_BUF_NAME]
         var bn = bufnr(bname)
         if bn > 0
           execute $'bwipeout! {bn}'
@@ -1032,251 +976,6 @@ def PopupFilter(id: number, key: string): bool
   return false
 enddef
 
-# ─── Week view helpers ───────────────────────────────────────────────────────
-
-# Return the Monday date string ('YYYY-MM-DD') for the ISO week containing
-# the given date. Used as key in week_cache.
-def WeekCacheKey(year: number, month: number, day: number): string
-  var days = WeekDays(year, month, day)
-  return printf('%04d-%02d-%02d', days[0].year, days[0].month, days[0].day)
-enddef
-
-# Julian Day Number formula (Fliegel & Van Flandern, 1968).
-def DateToJDN(year: number, month: number, day: number): number
-  var a = (14 - month) / 12
-  var y = year + 4800 - a
-  var m = month + 12 * a - 3
-  return day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045
-enddef
-
-# Inverse of DateToJDN (same paper).
-def JDNToDate(jdn: number): dict<any>
-  var a = jdn + 32044
-  var b = (4 * a + 3) / 146097
-  var c = a - (146097 * b) / 4
-  var d = (4 * c + 3) / 1461
-  var e = c - (1461 * d) / 4
-  var m = (5 * e + 2) / 153
-  return {
-    day:   e - (153 * m + 2) / 5 + 1,
-    month: m + 3 - 12 * (m / 10),
-    year:  100 * b + d - 4800 + m / 10,
-  }
-enddef
-
-# Return list of 7 date dicts {year, month, day} for Mon–Sun of the ISO week
-# that contains the given date.
-def WeekDays(year: number, month: number, day: number): list<dict<any>>
-  var wd = WeekdayForDate(year, month, day)   # 1=Mon .. 7=Sun
-  var mon_jdn = DateToJDN(year, month, day) - (wd - 1)
-  return range(7)->mapnew((i, _) => JDNToDate(mon_jdn + i))
-enddef
-
-# ISO week number: Thursday of the week is always in the same ISO year;
-# Jan 4 is always in ISO week 1 (ISO 8601).
-def ISOWeekNum(year: number, month: number, day: number): number
-  var wd = WeekdayForDate(year, month, day)
-  var thu_jdn = DateToJDN(year, month, day) + (4 - wd)
-  var thu = JDNToDate(thu_jdn)
-  var jan4_jdn = DateToJDN(thu.year, 1, 4)
-  var jan4_wd = (jan4_jdn + 1) % 7
-  if jan4_wd == 0
-    jan4_wd = 7
-  endif
-  return (thu_jdn - (jan4_jdn - (jan4_wd - 1))) / 7 + 1
-enddef
-
-# Build horizontal separator line for the week grid.
-# is_header: true uses ┬ (top join), false uses ┼ (cross join).
-def WeekSepLine(join_char: string): string
-  return repeat('─', WEEK_TIME_COL) .. join_char ..
-    join(range(7)->mapnew((_, _) => repeat('─', WEEK_DAY_COL)), join_char)
-enddef
-
-# Build one data row: time column + 7 day cells separated by │.
-def WeekDataRow(time_cell: string, day_cells: list<string>): string
-  var tc = printf('%-*s', WEEK_TIME_COL, strcharpart(time_cell, 0, WEEK_TIME_COL))
-  return tc .. '│' .. join(day_cells->mapnew(
-    (_, c) => printf('%-*s', WEEK_DAY_COL, strcharpart(c, 0, WEEK_DAY_COL))), '│')
-enddef
-
-# Truncate / pad text to fit in a day cell (1-space left margin).
-def CellText(text: string): string
-  var max_len = WEEK_DAY_COL - 1
-  var content = strcharlen(text) > max_len
-    ? strcharpart(text, 0, max_len - 3) .. '...'
-    : text
-  return ' ' .. content
-enddef
-
-# Return [row1, row2] strings for an event cell.
-def FormatEventCells(subject: string, organizer: string): list<string>
-  return [CellText(subject), CellText('(' .. organizer .. ')')]
-enddef
-
-# Build the week header string, e.g. "27 - 31 Jul 2026 (week 31)".
-def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
-  var first = wdays[0]
-  var last  = wdays[6]
-  if first.month == last.month
-    return printf('%d - %d %s %d (week %d)',
-      first.day, last.day, MonthName(first.month), first.year, week_num)
-  endif
-  return printf('%d %s - %d %s %d (week %d)',
-    first.day, MonthName(first.month)[: 2],
-    last.day,  MonthName(last.month)[: 2],
-    last.year, week_num)
-enddef
-
-# Return the first event matching the given hour, or {} if none.
-def FindHourEvent(events: dict<any>, date_key: string, hour: number): dict<any>
-  for ev in get(events, date_key, [])
-    if str2nr(split(get(ev, 'start', '00:00'), ':')[0]) == hour
-      return ev
-    endif
-  endfor
-  return {}
-enddef
-
-# Set up the __WeekView__ buffer in the window with the given buffer number,
-# repurposing it in-place. Returns true on success.
-def OpenWeekViewWindow(tabnew_bufnr: number): bool
-  var winnr = bufwinnr(tabnew_bufnr)
-  if winnr <= 0
-    return false
-  endif
-  win_gotoid(win_getid(winnr))
-  execute $'file {WEEK_BUF_NAME}'
-  setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified
-  setlocal textwidth=0 colorcolumn=0 fdc=0 nonu
-  if has('+relativenumber') || exists('+relativenumber')
-    setlocal nornu
-  endif
-  return true
-enddef
-
-# Render (or re-render) the week view buffer for the week containing
-# (year, month, day).  Pass events as a dict keyed 'YYYY-MM-DD' → list of
-# {start: 'HH:MM', subject: '...', organizer: '...'}.
-export def RenderWeekView(year: number, month: number, day: number, events: dict<any>)
-  # Use buffer number directly — works regardless of which tab is currently active.
-  var wv_buf = bufnr(WEEK_BUF_NAME)
-  if wv_buf <= 0
-    return
-  endif
-
-  current_week_key = WeekCacheKey(year, month, day)
-  var wdays    = WeekDays(year, month, day)
-  var week_num = ISOWeekNum(year, month, day)
-
-  var lines: list<string> = []
-
-  lines->add(WeekHeaderStr(wdays, week_num))
-  lines->add(WeekSepLine('┬'))
-
-  var day_labels = wdays->mapnew(
-    (i, d) => CellText(printf('%d, %s', d.day, WEEK_DAY_FULL[i])))
-  lines->add(WeekDataRow(' UTC+2', day_labels))
-  lines->add(WeekSepLine('┼'))
-
-  for h in range(0, 23)
-    var row1: list<string> = []
-    var row2: list<string> = []
-    for d in wdays
-      var ev = FindHourEvent(events, printf('%04d-%02d-%02d', d.year, d.month, d.day), h)
-      var [l1, l2] = empty(ev)
-        ? ['', '']
-        : FormatEventCells(get(ev, 'subject', ''), get(ev, 'organizer', ''))
-      row1->add(l1)
-      row2->add(l2)
-    endfor
-    lines->add(WeekDataRow(printf('%3d', h), row1))
-    lines->add(WeekDataRow('', row2))
-    lines->add(WeekSepLine('┼'))
-  endfor
-
-  setbufvar(wv_buf, '&modifiable', 1)
-  deletebufline(wv_buf, 1, '$')
-  setbufline(wv_buf, 1, lines)
-  setbufvar(wv_buf, '&modifiable', 0)
-enddef
-
-# ─── End week view helpers ────────────────────────────────────────────────────
-
-# Call the active diary's connect hook for the given week date.
-# The hook must return the path it wrote to on success, '' on failure.
-def CallConnectHook(year: number = -1, month: number = -1, day: number = -1)
-  if empty(cfg_connect) || !exists('*' .. cfg_connect)
-    return
-  endif
-  var fy = year  > 0 ? year  : str2nr(strftime('%Y'))
-  var fm = month > 0 ? month : str2nr(strftime('%m'))
-  var fd = day   > 0 ? day   : str2nr(strftime('%d'))
-  var path = call(function(cfg_connect), [fy, fm, fd])
-  if !empty(path)
-    LoadAppointments(path)
-  endif
-enddef
-
-# Parse the JSON at path, cache events for the current week, and re-render.
-# JSON format: list of {start, end, subject, organizer, location, body}.
-def LoadAppointments(path: string)
-  if !filereadable(path)
-    return
-  endif
-  var items: list<any> = []
-  try
-    items = json_decode(readfile(path)->join("\n"))
-  catch
-    echomsg '[Calendar] Could not parse appointments file.'
-    return
-  endtry
-  delete(path)   # consumed — no longer needed on disk
-
-  var events: dict<list<any>> = {}
-  for item in items
-    var date_key = strpart(get(item, 'start', ''), 0, 10)
-    if !has_key(events, date_key)
-      events[date_key] = []
-    endif
-    events[date_key]->add({
-      start:     strpart(get(item, 'start', ''), 11, 5),
-      end:       strpart(get(item, 'end',   ''), 11, 5),
-      subject:   get(item, 'subject',   ''),
-      organizer: get(item, 'organizer', ''),
-      location:  get(item, 'location',  ''),
-      body:      get(item, 'body',      ''),
-    })
-  endfor
-
-  var key = empty(current_week_key)
-    ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
-    : current_week_key
-  var ky = str2nr(key[0 : 3])
-  var km = str2nr(key[5 : 6])
-  var kd = str2nr(key[8 : 9])
-  week_cache[key] = events
-  RenderWeekView(ky, km, kd, events)
-enddef
-
-# Re-fetch appointments for the currently displayed week.
-# Invalidates the cache entry so fresh data is fetched from the connect hook.
-export def CalendarRefresh()
-  if empty(cfg_connect)
-    return
-  endif
-  var key = empty(current_week_key)
-    ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
-    : current_week_key
-  if has_key(week_cache, key)
-    remove(week_cache, key)
-  endif
-  var ky = str2nr(key[0 : 3])
-  var km = str2nr(key[5 : 6])
-  var kd = str2nr(key[8 : 9])
-  CallConnectHook(ky, km, kd)
-enddef
-
 # Toggle the calendar tab: jump to it if open elsewhere, close if current,
 # open fresh if not yet open.
 var cal_tab_winid = -1
@@ -1305,7 +1004,7 @@ export def CalendarToggle(year: number = -1, month: number = -1)
 
   Show(year, month)
   cal_tab_winid = win_getid()
-  CallConnectHook()
+  week_view.CallConnectHook()
 enddef
 
 # Main entrypoint used by :Calendar command.
@@ -1314,6 +1013,8 @@ export def Show(year: number = -1, month: number = -1): string
   if !InitVariables()
     return ''
   endif
+
+  state_curr_week_num = str2nr(strftime('%V'))
 
   var y = year == -1 ? str2nr(strftime('%Y')) : year
   var m = month == -1 ? str2nr(strftime('%m')) : month
@@ -1329,8 +1030,8 @@ export def Show(year: number = -1, month: number = -1): string
   RenderView(y, m)
   var cal_winid = win_getid()
 
-  if OpenWeekViewWindow(tabnew_bufnr)
-    RenderWeekView(y, m, str2nr(strftime('%d')), {})
+  if week_view.OpenWeekViewWindow(tabnew_bufnr)
+    week_view.RenderWeekView(y, m, str2nr(strftime('%d')), {})
   endif
 
   win_gotoid(cal_winid)
@@ -1358,14 +1059,4 @@ export def Search(keyword: string, year: string = '')
 
 enddef
 
-hi def link CalSaturday LineNr
-hi def link CalSunday Error
-hi def link CalRuler Normal
-hi def link CalWeekdays WarningMsg
-hi def link CalWeeknm Visual
-hi def link CalToday Visual
-hi def link CalHeader WarningMsg
-hi def link CalHoliday Error
-hi def link CalCurrList Error
-hi def link CalHelpHint Question
-hi def link CalPopupSelection Visual
+# vim: shiftwidth=2 softtabstop=2 noexpandtab
