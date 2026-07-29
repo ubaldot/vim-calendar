@@ -39,6 +39,10 @@ var state_base_month = 0
 var state_blocks: list<dict<any>> = []
 var state_diary_rows: dict<string> = {}
 var week_view_winid = -1
+var week_cache: dict<dict<list<any>>> = {}
+var pending_week_year  = -1
+var pending_week_month = -1
+var pending_week_day   = -1
 
 # Normalize window placement to supported values.
 def NormalizePos(v: any): string
@@ -709,6 +713,7 @@ def ActivateDiary(name: string): bool
   cfg_diary_path        = has_key(d, 'path') ? d.path : cfg_diary_path
   cfg_appointments_path = get(d, 'appointments_path', '')
   cfg_connect           = get(d, 'connect', '')
+  week_cache            = {}   # new diary has its own appointments
   return true
 enddef
 
@@ -826,7 +831,13 @@ def Action(arg: string = '')
 
   # Always refresh week view when visible
   if week_view_winid > 0 && win_id2win(week_view_winid) > 0
-    RenderWeekView(year, month, day, {})
+    var cache_key = WeekCacheKey(year, month, day)
+    if has_key(week_cache, cache_key)
+      RenderWeekView(year, month, day, week_cache[cache_key])
+    else
+      CallConnectHook(year, month, day)
+      RenderWeekView(year, month, day, {})  # render empty now; fetch will refresh
+    endif
   endif
 enddef
 
@@ -1014,6 +1025,13 @@ enddef
 
 # ─── Week view helpers ───────────────────────────────────────────────────────
 
+# Return the Monday date string ('YYYY-MM-DD') for the ISO week containing
+# the given date. Used as key in week_cache.
+def WeekCacheKey(year: number, month: number, day: number): string
+  var days = WeekDays(year, month, day)
+  return printf('%04d-%02d-%02d', days[0].year, days[0].month, days[0].day)
+enddef
+
 # Julian Day Number formula (Fliegel & Van Flandern, 1968).
 def DateToJDN(year: number, month: number, day: number): number
   var a = (14 - month) / 12
@@ -1181,9 +1199,13 @@ enddef
 # ─── End week view helpers ────────────────────────────────────────────────────
 
 # Call the active diary's connect hook if configured.
-def CallConnectHook()
+# year/month/day identify the week to fetch; default to today.
+def CallConnectHook(year: number = -1, month: number = -1, day: number = -1)
   if !empty(cfg_connect) && exists('*' .. cfg_connect)
-    call(function(cfg_connect), [])
+    pending_week_year  = year  > 0 ? year  : str2nr(strftime('%Y'))
+    pending_week_month = month > 0 ? month : str2nr(strftime('%m'))
+    pending_week_day   = day   > 0 ? day   : str2nr(strftime('%d'))
+    call(function(cfg_connect), [pending_week_year, pending_week_month, pending_week_day])
   endif
 enddef
 
@@ -1200,6 +1222,7 @@ export def LoadAppointments(path: string)
     echomsg '[Calendar] Could not parse appointments file.'
     return
   endtry
+  delete(path)   # consumed — no longer needed on disk
 
   var events: dict<list<any>> = {}
   for item in items
@@ -1217,10 +1240,12 @@ export def LoadAppointments(path: string)
     })
   endfor
 
-  var y = str2nr(strftime('%Y'))
-  var m = str2nr(strftime('%m'))
-  var d = str2nr(strftime('%d'))
-  RenderWeekView(y, m, d, events)
+  # Cache by Monday date of the fetched week.
+  var fy = pending_week_year  > 0 ? pending_week_year  : str2nr(strftime('%Y'))
+  var fm = pending_week_month > 0 ? pending_week_month : str2nr(strftime('%m'))
+  var fd = pending_week_day   > 0 ? pending_week_day   : str2nr(strftime('%d'))
+  week_cache[WeekCacheKey(fy, fm, fd)] = events
+  RenderWeekView(fy, fm, fd, events)
 enddef
 
 # Reload appointments from the active diary's appointments_path and re-render.
