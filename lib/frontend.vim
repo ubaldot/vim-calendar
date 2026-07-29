@@ -40,9 +40,7 @@ var state_blocks: list<dict<any>> = []
 var state_diary_rows: dict<string> = {}
 var week_view_winid = -1
 var week_cache: dict<dict<list<any>>> = {}
-var pending_week_year  = -1
-var pending_week_month = -1
-var pending_week_day   = -1
+var current_week_key = ''   # WeekCacheKey of last rendered week; used by :CalendarRefresh
 
 # Normalize window placement to supported values.
 def NormalizePos(v: any): string
@@ -1160,6 +1158,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
     week_view_winid = win_getid(bwv)
   endif
 
+  current_week_key = WeekCacheKey(year, month, day)
   var wdays    = WeekDays(year, month, day)
   var week_num = ISOWeekNum(year, month, day)
 
@@ -1198,20 +1197,19 @@ enddef
 
 # ─── End week view helpers ────────────────────────────────────────────────────
 
-# Call the active diary's connect hook if configured.
-# year/month/day identify the week to fetch; default to today.
+# Call the active diary's connect hook for the given week date.
 def CallConnectHook(year: number = -1, month: number = -1, day: number = -1)
   if !empty(cfg_connect) && exists('*' .. cfg_connect)
-    pending_week_year  = year  > 0 ? year  : str2nr(strftime('%Y'))
-    pending_week_month = month > 0 ? month : str2nr(strftime('%m'))
-    pending_week_day   = day   > 0 ? day   : str2nr(strftime('%d'))
-    call(function(cfg_connect), [pending_week_year, pending_week_month, pending_week_day])
+    var fy = year  > 0 ? year  : str2nr(strftime('%Y'))
+    var fm = month > 0 ? month : str2nr(strftime('%m'))
+    var fd = day   > 0 ? day   : str2nr(strftime('%d'))
+    call(function(cfg_connect), [fy, fm, fd])
   endif
 enddef
 
-# Parse the JSON at path and refresh the week view.
+# Parse the JSON at path and cache/render for the given week.
 # JSON format: list of {start, end, subject, organizer, location, body}.
-export def LoadAppointments(path: string)
+export def LoadAppointments(path: string, year: number, month: number, day: number)
   if !filereadable(path)
     return
   endif
@@ -1240,32 +1238,41 @@ export def LoadAppointments(path: string)
     })
   endfor
 
-  # Cache by Monday date of the fetched week.
-  var fy = pending_week_year  > 0 ? pending_week_year  : str2nr(strftime('%Y'))
-  var fm = pending_week_month > 0 ? pending_week_month : str2nr(strftime('%m'))
-  var fd = pending_week_day   > 0 ? pending_week_day   : str2nr(strftime('%d'))
-  week_cache[WeekCacheKey(fy, fm, fd)] = events
-  RenderWeekView(fy, fm, fd, events)
+  week_cache[WeekCacheKey(year, month, day)] = events
+  RenderWeekView(year, month, day, events)
 enddef
 
-# Reload appointments from the active diary's appointments_path and re-render.
-# Called by the connect hook (FetchDone) after a fresh JSON has been written,
-# or by the user to force a re-fetch of the currently displayed week.
-export def CalendarRefresh()
+# Called by FetchDone (via :CalendarRefresh year month day) after a fresh JSON
+# is written, or by the user (:CalendarRefresh) to re-fetch the current week.
+export def CalendarRefresh(year: number = -1, month: number = -1, day: number = -1)
+  if year > 0
+    # Invoked from FetchDone with the week that was fetched.
+    if !empty(cfg_appointments_path)
+      LoadAppointments(cfg_appointments_path, year, month, day)
+    endif
+    return
+  endif
+
+  # Manual call: re-fetch the currently displayed week.
   if empty(cfg_connect)
     return
   endif
-  # If called from FetchDone the JSON file exists — load it directly.
-  if !empty(cfg_appointments_path) && filereadable(cfg_appointments_path)
-    LoadAppointments(cfg_appointments_path)
-    return
+  var key = current_week_key
+  if empty(key)
+    # Calendar never rendered yet — default to today.
+    var td = str2nr(strftime('%d'))
+    var tm = str2nr(strftime('%m'))
+    var ty = str2nr(strftime('%Y'))
+    key = WeekCacheKey(ty, tm, td)
   endif
-  # Otherwise invalidate the cache for the current week and re-fetch.
-  var fy = pending_week_year  > 0 ? pending_week_year  : str2nr(strftime('%Y'))
-  var fm = pending_week_month > 0 ? pending_week_month : str2nr(strftime('%m'))
-  var fd = pending_week_day   > 0 ? pending_week_day   : str2nr(strftime('%d'))
-  remove(week_cache, WeekCacheKey(fy, fm, fd))
-  CallConnectHook(fy, fm, fd)
+  if has_key(week_cache, key)
+    remove(week_cache, key)
+  endif
+  # Parse the key back to a date (it is the Monday: 'YYYY-MM-DD').
+  var ky = str2nr(key[0 : 3])
+  var km = str2nr(key[5 : 6])
+  var kd = str2nr(key[8 : 9])
+  CallConnectHook(ky, km, kd)
 enddef
 
 # Toggle the calendar tab: jump to it if open elsewhere, close if current,
