@@ -1249,10 +1249,23 @@ export def LoadAppointments(path: string)
 enddef
 
 # Reload appointments from the active diary's appointments_path and re-render.
+# Called by the connect hook (FetchDone) after a fresh JSON has been written,
+# or by the user to force a re-fetch of the currently displayed week.
 export def CalendarRefresh()
-  if !empty(cfg_appointments_path)
-    LoadAppointments(cfg_appointments_path)
+  if empty(cfg_connect)
+    return
   endif
+  # If called from FetchDone the JSON file exists — load it directly.
+  if !empty(cfg_appointments_path) && filereadable(cfg_appointments_path)
+    LoadAppointments(cfg_appointments_path)
+    return
+  endif
+  # Otherwise invalidate the cache for the current week and re-fetch.
+  var fy = pending_week_year  > 0 ? pending_week_year  : str2nr(strftime('%Y'))
+  var fm = pending_week_month > 0 ? pending_week_month : str2nr(strftime('%m'))
+  var fd = pending_week_day   > 0 ? pending_week_day   : str2nr(strftime('%d'))
+  remove(week_cache, WeekCacheKey(fy, fm, fd))
+  CallConnectHook(fy, fm, fd)
 enddef
 
 # Toggle the calendar tab: jump to it if open elsewhere, close if current,
