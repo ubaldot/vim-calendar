@@ -170,6 +170,7 @@ export def OpenWeekViewWindow(tabnew_bufnr: number): bool
     setlocal winfixbuf
   endif
 
+  WeekViewBuildKeymap()
   return true
 enddef
 
@@ -404,4 +405,56 @@ export def GetAppointmentAtCursor(): dict<any>
     return {}
   endif
   return row[col_idx]
+enddef
+
+# ─── Week view keymaps and popups ────────────────────────────────────────────
+
+# Any key closes the appointment detail popup.
+def AppointmentDetailFilter(id: number, key: string): bool
+  popup_close(id)
+  return true
+enddef
+
+# Show a popup_atcursor with the full details of the appointment under the cursor.
+# Does nothing when the cursor is not on an appointment.
+def ShowAppointmentDetails()
+  var appt = GetAppointmentAtCursor()
+  if empty(appt)
+    return
+  endif
+  var lines: list<string> = []
+  var start_t = get(appt, 'start',     '')
+  var end_t   = get(appt, 'end',       '')
+  var org     = get(appt, 'organizer', '')
+  var loc     = get(appt, 'location',  '')
+  var body    = get(appt, 'body',      '')
+
+  if !empty(start_t) || !empty(end_t)
+    lines->add($' {start_t} – {end_t}')
+  endif
+  if !empty(org)
+    lines->add($' Organizer:  {org}')
+  endif
+  if !empty(loc)
+    lines->add($' Location:   {loc}')
+  endif
+  if !empty(body)
+    lines->add(' ')
+    for bline in split(body, "\n")
+      lines->add($' {bline}')
+    endfor
+  endif
+
+  popup_atcursor(lines, {
+    title:        $' {get(appt, "subject", "")} ',
+    border:       [1, 1, 1, 1],
+    borderchars:  ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
+    filter:       AppointmentDetailFilter,
+    mapping:      0,
+  })
+enddef
+
+# Set buffer-local keymaps for the __WeekView__ body buffer.
+def WeekViewBuildKeymap()
+  nnoremap <silent> <buffer> K <ScriptCmd>ShowAppointmentDetails()<CR>
 enddef
