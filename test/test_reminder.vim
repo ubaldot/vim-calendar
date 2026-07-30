@@ -34,7 +34,7 @@ def g:Test_reminder_schedule_creates_timer_for_future_meeting()
   var m = g:FutureMeeting()
   if empty(m) | return | endif
   reminder.Schedule(TODAY, [m])
-  assert_equal(1, reminder.PendingCount())
+  assert_equal(2, reminder.PendingCount())  # |pre and |now
   reminder.CancelAll()
 enddef
 
@@ -48,7 +48,7 @@ def g:Test_reminder_schedule_multiple_meetings()
   var m2 = g:FutureMeeting(4, 'EID_B')
   if empty(m1) || empty(m2) | return | endif
   reminder.Schedule(TODAY, [m1, m2])
-  assert_equal(2, reminder.PendingCount())
+  assert_equal(4, reminder.PendingCount())  # 2 timers × 2 meetings
   reminder.CancelAll()
 enddef
 
@@ -65,7 +65,7 @@ def g:Test_reminder_reschedule_cancels_previous_timers()
   if empty(m) | return | endif
   reminder.Schedule(TODAY, [m])
   reminder.Schedule(TODAY, [m])   # reschedule same meeting
-  assert_equal(1, reminder.PendingCount())  # not 2
+  assert_equal(2, reminder.PendingCount())  # not 4
   reminder.CancelAll()
 enddef
 
@@ -85,8 +85,8 @@ def g:Test_reminder_set_sound_enabled_does_not_crash()
 enddef
 
 def g:Test_reminder_within_15min_window_fires_immediately()
-  # A meeting starting in 10 min is inside the 15-min window: should get
-  # a 500 ms one-shot timer rather than being skipped.
+  # A meeting starting in 10 min is inside the 15-min window: |pre fires 500ms,
+  # |now fires at the exact remaining delay. Both timers must be pending.
   var now_h = str2nr(strftime('%H'))
   var now_m = str2nr(strftime('%M'))
   var meet_min = now_h * 60 + now_m + 10
@@ -98,6 +98,6 @@ def g:Test_reminder_within_15min_window_fires_immediately()
     entryid: 'SOON1',
   }
   reminder.Schedule(TODAY, [m])
-  assert_equal(1, reminder.PendingCount())
+  assert_equal(2, reminder.PendingCount())
   reminder.CancelAll()
 enddef

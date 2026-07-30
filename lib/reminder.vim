@@ -2,25 +2,28 @@ vim9script
 
 # Meeting reminders via one-shot timers — no periodic polling.
 #
-# For each today meeting a timer fires at (start − 15 min).
-# Popup shows subject, time, organizer, and room.
+# Two popups per meeting:
+#   1. 15 min before start  → "Starting in 15 min"
+#   2. At start time        → "Starting NOW!"
 #
-#   Esc  – snooze: a new one-shot timer fires in 5 minutes
-#   d    – dismiss: no further timer for this meeting today
+# Popup shows subject, time, organizer, room.
+# Keys in the popup:
+#   Esc  – snooze 5 min (new timer; dismissed check still blocks it if 'd' was hit)
+#   d    – dismiss: cancels both remaining timers for this meeting today
 #
 # Sound: PowerShell SystemAsterisk on win32; afplay on mac; silent elsewhere.
 #
 # Integration:
-#   week_view.LoadAppointments calls Schedule(today_key, meetings)
-#   frontend.CalendarWipe      calls CancelAll()
-#   frontend.InitVariables     calls SetSoundEnabled(bool)
+#   week_view.RescheduleReminders calls Schedule(today_key, meetings)
+#   frontend.CalendarWipe         calls CancelAll()
+#   frontend.InitVariables        calls SetSoundEnabled(bool)
 
-var scheduled:    dict<number> = {}   # day-scoped key → timer_id
-var dismissed:    dict<bool>   = {}   # day-scoped key → true
+var scheduled:   dict<number> = {}  # timer_key → timer_id
+var dismissed:   dict<bool>   = {}  # base_key  → true (blocks all timers for that meeting)
 var sound_enabled = true
-var popup_zindex  = 200               # incremented per popup so stacked reminders are visible
+var popup_zindex  = 200             # incremented per popup so simultaneous ones stack visibly
 
-# Stable, day-scoped key for a meeting.
+# Stable, day-scoped identity key for a meeting.
 # Uses entryid when available; falls back to start|subject.
 def MeetingKey(date_key: string, meeting: dict<any>): string
   var eid = get(meeting, 'entryid', '')
@@ -32,7 +35,7 @@ export def SetSoundEnabled(v: bool)
   sound_enabled = v
 enddef
 
-# Cancel all pending reminder timers and clear the schedule.
+# Cancel all pending reminder timers.
 export def CancelAll()
   for [_, tid] in items(scheduled)
     timer_stop(tid)
@@ -40,17 +43,15 @@ export def CancelAll()
   scheduled = {}
 enddef
 
-# Number of pending timers — exported for tests.
+# Number of pending timers (2 per meeting normally) — exported for tests.
 export def PendingCount(): number
   return len(scheduled)
 enddef
 
-# Schedule one-shot reminder timers for today's meetings.
-# Accepts list<any> so it can be called directly from the week_cache
-# without a type-cast (cache stores list<any> per date key).
-# Meetings already past the 15-min mark but not yet started get a 500 ms
-# timer so the popup fires almost immediately.
-# Resets dismissed state — new schedule means fresh day data.
+# Schedule two timers per meeting: one at (start − 15 min), one at start.
+# Timer keys: base_key|pre and base_key|now.
+# dismissed uses base_key so pressing 'd' on either popup cancels both.
+# Accepts list<any> to match the week_cache value type (list<any> per date key).
 export def Schedule(date_key: string, meetings: list<any>)
   CancelAll()
   dismissed = {}
@@ -73,36 +74,50 @@ export def Schedule(date_key: string, meetings: list<any>)
     endif
 
     var meet_min = str2nr(parts[0]) * 60 + str2nr(parts[1])
-    var key      = MeetingKey(date_key, m)
 
-    var delay_ms = (meet_min - 15 - now_min) * 60000 - now_sec * 1000
-
-    if delay_ms <= 0
-      # Past the 15-min mark — still show if meeting hasn't started yet.
-      if meet_min > now_min
-        scheduled[key] = timer_start(500, function(FireReminder, [date_key, key, m]))
-      endif
+    # Skip meetings that have already started.
+    if meet_min <= now_min
       continue
     endif
 
-    scheduled[key] = timer_start(delay_ms, function(FireReminder, [date_key, key, m]))
+    var base_key  = MeetingKey(date_key, m)
+    var key_pre   = base_key .. '|pre'
+    var key_now   = base_key .. '|now'
+
+    var delay_pre = (meet_min - 15 - now_min) * 60000 - now_sec * 1000
+    var delay_now = (meet_min      - now_min) * 60000 - now_sec * 1000
+
+    # |pre timer: fires 15 min before start (or immediately if already inside window).
+    if delay_pre > 0
+      scheduled[key_pre] = timer_start(delay_pre,
+        function(FireReminder, [date_key, base_key, key_pre, m]))
+    else
+      scheduled[key_pre] = timer_start(500,
+        function(FireReminder, [date_key, base_key, key_pre, m]))
+    endif
+
+    # |now timer: fires exactly at start time.
+    scheduled[key_now] = timer_start(max([500, delay_now]),
+      function(FireReminder, [date_key, base_key, key_now, m]))
   endfor
 enddef
 
-def FireReminder(date_key: string, key: string, meeting: dict<any>, _timer: number)
-  if has_key(scheduled, key)
-    remove(scheduled, key)
+def FireReminder(date_key: string, base_key: string, timer_key: string,
+                 meeting: dict<any>, _timer: number)
+  if has_key(scheduled, timer_key)
+    remove(scheduled, timer_key)
   endif
-  if get(dismissed, key, false)
+  if get(dismissed, base_key, false)
     return
   endif
 
   var now_min  = str2nr(strftime('%H')) * 60 + str2nr(strftime('%M'))
   var parts    = split(get(meeting, 'start', '00:00'), ':')
   var meet_min = str2nr(parts[0]) * 60 + str2nr(parts[1])
+  var mins_left = max([0, meet_min - now_min])
 
   PlaySound()
-  ShowReminderPopup(date_key, key, meeting, max([0, meet_min - now_min]))
+  ShowReminderPopup(date_key, base_key, meeting, mins_left)
 enddef
 
 def PlaySound()
@@ -119,14 +134,15 @@ def PlaySound()
   endif
 enddef
 
-def ShowReminderPopup(date_key: string, key: string, meeting: dict<any>, minutes_left: number)
+def ShowReminderPopup(date_key: string, base_key: string,
+                      meeting: dict<any>, minutes_left: number)
   var subj  = get(meeting, 'subject',   '(no title)')
   var start = get(meeting, 'start',     '')
   var end_  = get(meeting, 'end',       '')
   var org   = get(meeting, 'organizer', '')
   var loc   = get(meeting, 'location',  '')
 
-  var when_str = minutes_left == 0 ? 'now' : $'in {minutes_left} min'
+  var when_str = minutes_left == 0 ? 'NOW!' : $'in {minutes_left} min'
 
   var lines: list<string> = ['']
   lines->add('  ' .. subj)
@@ -143,29 +159,39 @@ def ShowReminderPopup(date_key: string, key: string, meeting: dict<any>, minutes
   lines->add('  Esc: snooze 5 min   d: dismiss')
   lines->add('')
 
-  # Each popup gets a higher zindex so simultaneous reminders stack visibly.
   popup_zindex += 1
-  var zidx = popup_zindex
   popup_create(lines, {
     title:       ' 🔔 Starting ' .. when_str .. ' ',
     border:      [1, 1, 1, 1],
     borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
     pos:         'center',
-    zindex:      zidx,
-    filter:      function(ReminderFilter, [date_key, key, meeting]),
+    zindex:      popup_zindex,
+    filter:      function(ReminderFilter, [date_key, base_key, meeting]),
     mapping:     0,
   })
 enddef
 
-def ReminderFilter(date_key: string, key: string, meeting: dict<any>, id: number, pressed: string): bool
+def ReminderFilter(date_key: string, base_key: string, meeting: dict<any>,
+                   id: number, pressed: string): bool
   if pressed ==# 'd'
-    dismissed[key] = true
+    # Dismiss: cancel any still-pending timer for this meeting and suppress future ones.
+    dismissed[base_key] = true
+    for suffix in ['|pre', '|now']
+      var k = base_key .. suffix
+      if has_key(scheduled, k)
+        timer_stop(scheduled[k])
+        remove(scheduled, k)
+      endif
+    endfor
     popup_close(id)
     return true
   elseif pressed ==# "\<Esc>"
+    # Snooze: reopen in 5 min with a unique key so it doesn't collide.
     popup_close(id)
+    var snooze_key = base_key .. '|snooze_' .. localtime()
     var m = copy(meeting)
-    scheduled[key] = timer_start(300000, function(FireReminder, [date_key, key, m]))
+    scheduled[snooze_key] = timer_start(300000,
+      function(FireReminder, [date_key, base_key, snooze_key, m]))
     return true
   endif
   return false
