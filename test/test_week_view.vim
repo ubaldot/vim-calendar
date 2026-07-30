@@ -6,6 +6,7 @@ var WaitForAssert = common.WaitForAssert
 packadd CalendarToggle
 import autoload "../lib/week_view.vim"
 import autoload "../lib/backend.vim"
+import autoload "../lib/reminder.vim"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -421,18 +422,62 @@ def g:Test_reschedule_reminders_uses_cache()
   WaitForAssert(() => assert_equal(3, winnr('$')))
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
-  # Load fixture data for the current week so today_key may match.
+  # RescheduleReminders must not throw even when cache has no today entry.
+  week_view.RescheduleReminders()
+enddef
+
+def g:Test_reschedule_reminders_schedules_todays_meetings()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  # Inject a future meeting directly into the week cache via the connect hook,
+  # but point cal_week_key at today's week so RescheduleReminders finds it.
   var ty = str2nr(strftime('%Y'))
   var tm = str2nr(strftime('%m'))
   var td = str2nr(strftime('%d'))
-  t:cal_week_key = printf('%04d-%02d-%02d',
-    backend.WeekDays(ty, tm, td)[0].year,
-    backend.WeekDays(ty, tm, td)[0].month,
-    backend.WeekDays(ty, tm, td)[0].day)
-  week_view.CallConnectHook(ty, tm, td)
+  var mon = backend.WeekDays(ty, tm, td)[0]
+  var today_key = strftime('%Y-%m-%d')
+  var future_h = str2nr(strftime('%H')) + 3
+  if future_h >= 24 | return | endif  # skip near midnight
 
-  # RescheduleReminders must not throw even when cache has no today entry.
+  # Write a temp JSON with a meeting 3 hours from now and load it.
+  var meeting_start = printf('%s T%02d:00:00', today_key, future_h)->substitute(' ', '', 'g')
+  var meeting_end   = printf('%s T%02d:30:00', today_key, future_h)->substitute(' ', '', 'g')
+  var appt_json = json_encode([{
+    start:     meeting_start,
+    end:       meeting_end,
+    subject:   'Future Meeting',
+    organizer: 'Test',
+    location:  '',
+    body:      '',
+    entryid:   'FUTURE_EID',
+    allday:    false,
+  }])
+  var tmp = tempname() .. '.json'
+  writefile([appt_json], tmp)
+  t:cal_connect_func = 'g:TestWeekConnect'
+  t:cal_week_key = printf('%04d-%02d-%02d', mon.year, mon.month, mon.day)
+  # Use LoadAppointments indirectly via the connect hook by overwriting the fixture.
+  # Simpler: call RescheduleReminders after manually populating the cache via
+  # the public LoadAppointments path (CallConnectHook writes the fixture file).
+  # Direct injection: write our JSON to the temp path and call the hook.
+  var save_connect = get(t:, 'cal_connect_func', '')
+  week_view.SetConnectFunc('g:TestWeekConnect')
+
+  # Produce a temp file with our single-meeting JSON and read it as the hook output.
+  writefile([appt_json], tmp)
+  def g:TmpConnect(_y: number, _m: number, _d: number): string
+    return tmp
+  enddef
+  week_view.SetConnectFunc('g:TmpConnect')
+  week_view.CallConnectHook(ty, tm, td)
   week_view.RescheduleReminders()
+
+  assert_true(reminder.PendingCount() >= 1,
+    'RescheduleReminders must create a timer for a future meeting today')
+  reminder.CancelAll()
 enddef
 
 # vim: shiftwidth=2 softtabstop=2 noexpandtab

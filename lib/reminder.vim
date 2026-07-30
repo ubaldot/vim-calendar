@@ -45,10 +45,12 @@ export def PendingCount(): number
 enddef
 
 # Schedule one-shot reminder timers for today's meetings.
+# Accepts list<any> so it can be called directly from the week_cache
+# without a type-cast (cache stores list<any> per date key).
 # Meetings already past the 15-min mark but not yet started get a 500 ms
 # timer so the popup fires almost immediately.
 # Resets dismissed state — new schedule means fresh day data.
-export def Schedule(date_key: string, meetings: list<dict<any>>)
+export def Schedule(date_key: string, meetings: list<any>)
   CancelAll()
   dismissed = {}
 
@@ -56,7 +58,11 @@ export def Schedule(date_key: string, meetings: list<dict<any>>)
   var now_sec = str2nr(strftime('%S'))
 
   for meeting in meetings
-    var start = get(meeting, 'start', '')
+    if type(meeting) != v:t_dict
+      continue
+    endif
+    var m: dict<any> = meeting
+    var start = get(m, 'start', '')
     if empty(start)
       continue
     endif
@@ -66,8 +72,7 @@ export def Schedule(date_key: string, meetings: list<dict<any>>)
     endif
 
     var meet_min = str2nr(parts[0]) * 60 + str2nr(parts[1])
-    var key      = MeetingKey(date_key, meeting)
-    var m        = copy(meeting)
+    var key      = MeetingKey(date_key, m)
 
     var delay_ms = (meet_min - 15 - now_min) * 60000 - now_sec * 1000
 
