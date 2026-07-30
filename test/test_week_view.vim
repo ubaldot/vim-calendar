@@ -169,4 +169,48 @@ def g:Test_today_key_resets_after_t_navigation()
   assert_equal(str2nr(strftime('%V')), t:cal_curr_week_num)
 enddef
 
+def g:Test_get_appointment_at_cursor()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+
+  # Load fixture appointments for week 2026-07-27.
+  t:cal_week_key = '2026-07-27'
+  week_view.CallConnectHook(2026, 7, 27)
+
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  # Hours 0-8: 9 empty hours × 3 lines (1 slot × 2 rows + separator) = 27 lines.
+  # Hour 9 has 2 overlapping events on Monday (col 0):
+  #   slot 0 subject  → line 28  (Team Meeting)
+  #   slot 0 organizer → line 29
+  #   slot 1 subject  → line 30  (Overlapping Review)
+  # Col 15 is safely within the Monday cell (cols 10-25, WEEK_TIME_COL=8, WEEK_DAY_COL=16).
+  cursor(28, 15)
+  var appt = week_view.GetAppointmentAtCursor()
+  assert_equal('Team Meeting', get(appt, 'subject', ''),
+    'Line 28 col 15 should resolve to Team Meeting')
+
+  cursor(30, 15)
+  appt = week_view.GetAppointmentAtCursor()
+  assert_equal('Overlapping Review', get(appt, 'subject', ''),
+    'Line 30 col 15 should resolve to Overlapping Review')
+
+  # Organizer line of slot 0 must also resolve (same appt_row).
+  cursor(29, 15)
+  appt = week_view.GetAppointmentAtCursor()
+  assert_equal('Team Meeting', get(appt, 'subject', ''),
+    'Organizer line (29) should resolve to same appointment as subject line')
+
+  # Separator lines and empty-slot rows must return {}.
+  cursor(1, 15)
+  assert_equal({}, week_view.GetAppointmentAtCursor(),
+    'Hour-0 slot row (no events) should return {}')
+
+  # Time column (col < WEEK_TIME_COL + 2) must return {}.
+  cursor(28, 3)
+  assert_equal({}, week_view.GetAppointmentAtCursor(),
+    'Cursor on time column should return {}')
+enddef
+
 # vim: shiftwidth=2 softtabstop=2 noexpandtab

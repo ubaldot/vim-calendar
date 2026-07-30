@@ -16,11 +16,17 @@ const WEEK_DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
 
 var week_cache: dict<dict<list<any>>> = {}
 
+# Maps body-buffer line number (as string) → 7-element list of appointment
+# dicts, one per day column.  Empty dict means no appointment in that cell.
+# Rebuilt on every RenderWeekView call.
+var appt_line_map: dict<list<dict<any>>> = {}
+
 # Set the active diary's connect function and clear the week cache.
 # Must be called whenever the active diary changes.
 export def SetConnectFunc(name: string)
   t:cal_connect_func = name
   week_cache = {}
+  appt_line_map = {}
 enddef
 
 # Return the Monday date string ('YYYY-MM-DD') for the ISO week containing
@@ -212,6 +218,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
 
   # ── Body (hour grid) ──────────────────────────────────────────────────────
   var body_lines: list<string> = []
+  appt_line_map = {}
   var hour7_line = 1
   for h in range(0, 23)
     if h == 7
@@ -227,19 +234,29 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
     for k in range(slots)
       var row1: list<string> = []
       var row2: list<string> = []
+      var appt_row: list<dict<any>> = []
       for evs in day_evs
         if k < len(evs)
           var [l1, l2] = FormatEventCells(get(evs[k], 'subject', ''),
                                           get(evs[k], 'organizer', ''))
           row1->add(l1)
           row2->add(l2)
+          appt_row->add(evs[k])
         else
           row1->add('')
           row2->add('')
+          appt_row->add({})
         endif
       endfor
+      var subj_lnum = len(body_lines) + 1
       body_lines->add(WeekDataRow(k == 0 ? printf('%3d', h) : '', row1))
+      var org_lnum  = len(body_lines) + 1
       body_lines->add(WeekDataRow('', row2))
+      # Both subject and organizer lines resolve to the same appointment row.
+      if !empty(filter(copy(appt_row), (_, v) => !empty(v)))
+        appt_line_map[string(subj_lnum)] = appt_row
+        appt_line_map[string(org_lnum)]  = appt_row
+      endif
     endfor
     body_lines->add(WeekSepLine('┼'))
   endfor
@@ -367,4 +384,24 @@ export def CalendarRefresh()
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
   CallConnectHook(ky, km, kd)
+enddef
+
+# Return the appointment dict under the cursor in the __WeekView__ buffer,
+# or {} if the cursor is on a separator, time column, or empty cell.
+# col_idx (0-6) is derived from the fixed column widths:
+#   WEEK_TIME_COL chars + '│' then each day = WEEK_DAY_COL chars + '│'
+export def GetAppointmentAtCursor(): dict<any>
+  var row = get(appt_line_map, string(line('.')), [])
+  if empty(row)
+    return {}
+  endif
+  # Time column occupies cols 1..WEEK_TIME_COL, then col WEEK_TIME_COL+1 is '│'.
+  if col('.') <= WEEK_TIME_COL + 1
+    return {}
+  endif
+  var col_idx = (col('.') - WEEK_TIME_COL - 2) / (WEEK_DAY_COL + 1)
+  if col_idx < 0 || col_idx >= len(row)
+    return {}
+  endif
+  return row[col_idx]
 enddef
