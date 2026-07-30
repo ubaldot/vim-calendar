@@ -477,6 +477,29 @@ def CompactBody(body: string): list<string>
   return out
 enddef
 
+# Truncate lines at the first line that looks like meeting-invite boilerplate:
+# a rule line (5+ underscores / dashes / equals) or a conference join URL.
+# Applied to popup previews only; the full split view keeps the entire body.
+def StripBoilerplate(lines: list<string>): list<string>
+  const pat = '^\s*[_\-=]\{5,}\s*$'
+    .. '\|teams\.microsoft\.com'
+    .. '\|zoom\.us/j/'
+    .. '\|meet\.google\.com'
+    .. '\|webex\.com/meet'
+    .. '\|^\s*CAUTION:'
+  for i in range(len(lines))
+    if lines[i] =~# pat
+      # Strip any trailing blank lines left after the cut.
+      var result = lines[0 : i - 1]
+      while !empty(result) && result[-1] !~ '\S'
+        remove(result, -1)
+      endwhile
+      return result
+    endif
+  endfor
+  return lines
+enddef
+
 # Any key closes the appointment detail popup.
 def AppointmentDetailFilter(id: number, key: string): bool
   popup_close(id)
@@ -507,7 +530,7 @@ def ShowAppointmentDetails()
     lines->add($' Location:   {loc}')
   endif
   if !empty(body)
-    var compact = CompactBody(body)
+    var compact = StripBoilerplate(CompactBody(body))
     if !empty(compact)
       lines->add(' ')
       for bline in compact[: 9]

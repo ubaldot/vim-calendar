@@ -5,7 +5,7 @@ import autoload "./calendar_view.vim"
 import autoload "./highlights.vim"
 import autoload "./week_view.vim"
 
-const cal_bufname = '__Calendar'
+const cal_bufname = '__Calendar__'
 
 var cfg_position = 'left'
 var cfg_cal_type = 'eu'

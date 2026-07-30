@@ -160,7 +160,7 @@ def g:Test_today_key_resets_after_t_navigation()
 
   # Switch focus to calendar window and press 't' (Today).
   # Simulate by calling Action directly via the exported CalendarToggle path.
-  win_gotoid(win_findbuf(bufnr('__Calendar'))[0])
+  win_gotoid(win_findbuf(bufnr('__Calendar__'))[0])
   feedkeys('t', 'x')   # triggers Action('Today') via buffer keymap
 
   # Week key must now reflect today's week.
@@ -345,8 +345,8 @@ def g:Test_calendar_wipe()
 
   CalendarWipe
 
-  assert_equal(-1, bufnr('__Calendar'),
-    '__Calendar buffer must not exist after CalendarWipe')
+  assert_equal(-1, bufnr('__Calendar__'),
+    '__Calendar__ buffer must not exist after CalendarWipe')
   assert_equal(-1, bufnr(week_view.WEEK_BUF_NAME),
     '__WeekView__ buffer must not exist after CalendarWipe')
   assert_equal(-1, bufnr(week_view.WEEK_HDR_BUF_NAME),
