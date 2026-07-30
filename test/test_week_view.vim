@@ -415,4 +415,24 @@ def g:Test_week_view_navigation_syncs_left_pane()
     'Left pane must show August after navigating to 2026-08-03')
 enddef
 
+def g:Test_reschedule_reminders_uses_cache()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  # Load fixture data for the current week so today_key may match.
+  var ty = str2nr(strftime('%Y'))
+  var tm = str2nr(strftime('%m'))
+  var td = str2nr(strftime('%d'))
+  t:cal_week_key = printf('%04d-%02d-%02d',
+    backend.WeekDays(ty, tm, td)[0].year,
+    backend.WeekDays(ty, tm, td)[0].month,
+    backend.WeekDays(ty, tm, td)[0].day)
+  week_view.CallConnectHook(ty, tm, td)
+
+  # RescheduleReminders must not throw even when cache has no today entry.
+  week_view.RescheduleReminders()
+enddef
+
 # vim: shiftwidth=2 softtabstop=2 noexpandtab

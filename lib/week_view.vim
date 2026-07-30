@@ -414,10 +414,6 @@ def LoadAppointments(path: string)
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
   week_cache[key] = events
-  var today_key = strftime('%Y-%m-%d')
-  if has_key(events, today_key)
-    reminder.Schedule(today_key, events[today_key])
-  endif
   RenderWeekView(ky, km, kd, events)
 enddef
 
@@ -438,6 +434,21 @@ export def CalendarRefresh()
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
   CallConnectHook(ky, km, kd)
+  RescheduleReminders()
+enddef
+
+# Scan week_cache for today's meetings and (re)schedule reminder timers.
+# Called explicitly after every connect hook — the authoritative place to
+# trigger reminders so the scheduling is always visible and not a buried
+# side effect of LoadAppointments.
+export def RescheduleReminders()
+  var today_key = strftime('%Y-%m-%d')
+  for [_, events] in items(week_cache)
+    if has_key(events, today_key)
+      reminder.Schedule(today_key, events[today_key])
+      return
+    endif
+  endfor
 enddef
 
 # Return the appointment dict under the cursor in the __WeekView__ buffer,

@@ -882,6 +882,7 @@ export def CalendarToggle(year: number = -1, month: number = -1)
   Show(year, month)
   cal_tab_winid = win_getid()
   week_view.CallConnectHook()
+  week_view.RescheduleReminders()
 enddef
 
 # Wipe all calendar-related buffers and close the calendar tab if open.
