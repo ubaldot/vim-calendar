@@ -2,6 +2,7 @@ vim9script
 
 import autoload "./backend.vim"
 import autoload "./highlights.vim"
+import autoload "./reminder.vim"
 
 # Week view panel — self-contained module.
 # Owns: WEEK_BUF_NAME, week_cache.
@@ -413,6 +414,10 @@ def LoadAppointments(path: string)
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
   week_cache[key] = events
+  var today_key = strftime('%Y-%m-%d')
+  if has_key(events, today_key)
+    reminder.Schedule(today_key, events[today_key])
+  endif
   RenderWeekView(ky, km, kd, events)
 enddef
 

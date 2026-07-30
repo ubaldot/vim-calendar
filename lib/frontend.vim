@@ -3,6 +3,7 @@ vim9script
 import autoload "./backend.vim"
 import autoload "./calendar_view.vim"
 import autoload "./highlights.vim"
+import autoload "./reminder.vim"
 import autoload "./week_view.vim"
 
 const cal_bufname = '__Calendar__'
@@ -106,6 +107,7 @@ def InitVariables(): bool
     get(cfg, 'week_display_type', 'eu'),
     max([8, get(cfg, 'week_cell_width', 16)])
   )
+  reminder.SetSoundEnabled(!!get(cfg, 'reminder_sound', true))
 
   return true
 
@@ -885,6 +887,7 @@ enddef
 # Wipe all calendar-related buffers and close the calendar tab if open.
 # Called by :CalendarWipe.
 export def CalendarWipe()
+  reminder.CancelAll()
   if win_id2win(cal_tab_winid) > 0
     var [tabnr, _] = win_id2tabwin(cal_tab_winid)
     cal_tab_winid = -1
