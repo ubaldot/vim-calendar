@@ -19,3 +19,9 @@ command! -nargs=* CalendarToggle   frontend.CalendarToggle(<args>)
 command! -nargs=0 CalendarRefresh  week_view.CalendarRefresh()
 command! -nargs=* CalendarSearch   frontend.Search(<f-args>)
 command! -nargs=0 CalendarWipe     frontend.CalendarWipe()
+
+# Global wrapper required because &omnifunc must be a string name resolvable
+# in legacy Vimscript context.
+def g:CalendarAddressBookComplete(findstart: number, base: string): any
+  return frontend.AddressBookComplete(findstart, base)
+enddef

@@ -16,6 +16,7 @@ var cfg_search_grep = 'internal'
 var cfg_diaries: dict<any> = {My_Diary: {path: '~/my_diary', resolution: 'month'}}
 var cfg_active_diary = 'My_Diary'
 var cfg_diary_path = '~/my_diary'
+var cfg_address_book_path = ''
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
 var cfg_connect = ''
@@ -83,6 +84,7 @@ def InitVariables(): bool
 
   cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
   cfg_connect = get(active, 'connect', '')
+  cfg_address_book_path = get(active, 'address_book', '')
 
   var c = get(cfg, 'connect', {})
   if !empty(c)
@@ -364,6 +366,7 @@ def ActivateDiary(name: string): bool
   cfg_active_diary = name
   var d = cfg_diaries[name]
   cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
+  cfg_address_book_path = get(d, 'address_book', '')
   calendar_view.SetActiveDiary(cfg_active_diary, cfg_diary_path)
   week_view.SetConnectFunc(get(d, 'connect', ''))   # clears week_cache for new diary
   return true
@@ -564,6 +567,7 @@ def OpenDiaryPage(day: number, month: number, year: number, week: number)
     setlocal nowinfixbuf
   endif
   execute $"edit {file}"
+  ApplyAddressBook()
 
 enddef
 
@@ -604,6 +608,61 @@ def ActionOpenDiaryAndClose()
   cal_tab_winid = -1
   Close()
   execute $"edit {file}"
+  ApplyAddressBook()
+enddef
+
+# If cfg_address_book_path points to a readable JSON file, set omnifunc on
+# the current buffer to the calendar address-book completion function.
+def ApplyAddressBook()
+  if empty(cfg_address_book_path)
+    return
+  endif
+  var path = expand(cfg_address_book_path)
+  if !filereadable(path)
+    return
+  endif
+  setlocal omnifunc=CalendarAddressBookComplete
+enddef
+
+# Load the address book JSON and return it as a list of {name, email} dicts.
+# Returns [] when the file is absent or malformed.
+def LoadAddressBook(): list<any>
+  var path = expand(cfg_address_book_path)
+  if !filereadable(path)
+    return []
+  endif
+  try
+    return readfile(path)->join("\n")->json_decode()
+  catch
+    return []
+  endtry
+enddef
+
+# Omnifunc for address-book completion in diary buffers.
+# Format: [{name: "Alice Smith", email: "alice@corp.com"}, ...]
+# Completion trigger: any partial name or email fragment.
+export def AddressBookComplete(findstart: number, base: string): any
+  if findstart
+    # Find start of the current token (stop at whitespace, colon, comma, semicolon).
+    var c = col('.') - 1
+    var line = getline('.')
+    while c > 0 && line[c - 1] !~ '[ \t:,;]'
+      c -= 1
+    endwhile
+    return c
+  else
+    var prefix = tolower(base)
+    return LoadAddressBook()
+      ->filter((_, e) =>
+          empty(prefix)
+          || tolower(get(e, 'name',  '')) =~# prefix
+          || tolower(get(e, 'email', '')) =~# prefix)
+      ->mapnew((_, e) => ({
+          word: $'{e.name} <{e.email}>',
+          abbr: get(e, 'name',  ''),
+          menu: get(e, 'email', ''),
+        }))
+  endif
 enddef
 
 # Filter for help popup: close with q or <Esc>.
