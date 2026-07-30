@@ -798,6 +798,63 @@ enddef
 # open fresh if not yet open.
 var cal_tab_winid = -1
 
+# Navigate the week view to the next week, previous week, or today, and
+# synchronise the left calendar pane by positioning the cursor on the target
+# Monday and firing Action() — which handles NavigateWeekView, week-number
+# highlight, and all other side effects.
+# direction: 'next' | 'prev' | 'today'
+export def WeekViewNavigate(direction: string)
+  var y: number
+  var m: number
+  var d: number
+
+  if direction ==# 'today'
+    y = str2nr(strftime('%Y'))
+    m = str2nr(strftime('%m'))
+    d = str2nr(strftime('%d'))
+  else
+    var key = get(t:, 'cal_week_key', strftime('%Y-%m-%d'))
+    var parts = split(key, '-')
+    if len(parts) != 3
+      return
+    endif
+    var jdn = backend.DateToJDN(
+      str2nr(parts[0]), str2nr(parts[1]), str2nr(parts[2]))
+    var target = backend.JDNToDate(jdn + (direction ==# 'next' ? 7 : -7))
+    y = target.year
+    m = target.month
+    d = target.day
+  endif
+
+  var cal_buf = bufnr(cal_bufname)
+  if cal_buf <= 0 || empty(win_findbuf(cal_buf))
+    week_view.NavigateWeekView(y, m, d)
+    return
+  endif
+
+  var save_win = win_getid()
+  win_gotoid(win_findbuf(cal_buf)[0])
+
+  # m is already the month that contains the target Monday — render it directly.
+  # No year loops, no month loops, no searching needed.
+  RenderView(y, m)
+
+  # Place cursor precisely on day d using column arithmetic, then call
+  # Action() which handles NavigateWeekView, t:cal_curr_week_num, highlights.
+  for block in state_blocks
+    if block.year == y && block.month == m
+      var first_wd = backend.WeekdayForDate(y, m, 1)  # 0=Mon..6=Sun
+      var day_wd   = backend.WeekdayForDate(y, m, d)
+      cursor(block.line_start + (d - 1 + first_wd) / 7,
+             block.day_col_start + day_wd * 3)
+      Action()
+      break
+    endif
+  endfor
+
+  win_gotoid(save_win)
+enddef
+
 export def CalendarToggle(year: number = -1, month: number = -1)
   if !InitVariables()
     return

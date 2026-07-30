@@ -605,6 +605,9 @@ enddef
 
 # Set buffer-local keymaps for the __WeekView__ body buffer.
 def WeekViewBuildKeymap()
-  nnoremap <silent> <buffer> K  <ScriptCmd>ShowAppointmentDetails()<CR>
-  nnoremap <silent> <buffer> <CR> <ScriptCmd>OpenAppointmentBody()<CR>
+  nnoremap <silent> <buffer> K       <ScriptCmd>ShowAppointmentDetails()<CR>
+  nnoremap <silent> <buffer> <CR>    <ScriptCmd>OpenAppointmentBody()<CR>
+  nnoremap <silent> <buffer> <C-Right> <Cmd>CalendarWeekNav next<CR>
+  nnoremap <silent> <buffer> <C-Left>  <Cmd>CalendarWeekNav prev<CR>
+  nnoremap <silent> <buffer> t         <Cmd>CalendarWeekNav today<CR>
 enddef

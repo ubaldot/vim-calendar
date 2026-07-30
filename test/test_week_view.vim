@@ -5,6 +5,7 @@ var WaitForAssert = common.WaitForAssert
 
 packadd CalendarToggle
 import autoload "../lib/week_view.vim"
+import autoload "../lib/backend.vim"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -351,6 +352,67 @@ def g:Test_calendar_wipe()
     '__WeekView__ buffer must not exist after CalendarWipe')
   assert_equal(-1, bufnr(week_view.WEEK_HDR_BUF_NAME),
     '__WeekHeader__ buffer must not exist after CalendarWipe')
+enddef
+
+def g:Test_week_view_next_prev_week_navigation()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  # Start on a known Monday.
+  week_view.NavigateWeekView(2026, 7, 27)
+  assert_equal('2026-07-27', t:cal_week_key)
+
+  # Next week: 2026-08-03.
+  CalendarWeekNav next
+  assert_equal('2026-08-03', t:cal_week_key,
+    '<C-Right> must advance to the next Monday')
+
+  # Previous week twice: back to 2026-07-27.
+  CalendarWeekNav prev
+  CalendarWeekNav prev
+  assert_equal('2026-07-20', t:cal_week_key,
+    'Two prev navigations from 2026-08-03 must reach 2026-07-20')
+enddef
+
+def g:Test_week_view_today_navigation()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  # Navigate away, then go to today.
+  week_view.NavigateWeekView(2020, 1, 6)
+  assert_equal('2020-01-06', t:cal_week_key)
+
+  CalendarWeekNav today
+  var ty = str2nr(strftime('%Y'))
+  var tm = str2nr(strftime('%m'))
+  var td = str2nr(strftime('%d'))
+  var mon = backend.WeekDays(ty, tm, td)[0]
+  var expected_key = printf('%04d-%02d-%02d', mon.year, mon.month, mon.day)
+  assert_equal(expected_key, t:cal_week_key,
+    't in week view must navigate to today''s week')
+  assert_equal(str2nr(strftime('%V')), t:cal_curr_week_num,
+    't:cal_curr_week_num must reflect today''s ISO week number')
+enddef
+
+def g:Test_week_view_navigation_syncs_left_pane()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  # Navigate to a week far from today so the left pane must update.
+  week_view.NavigateWeekView(2026, 7, 27)
+
+  CalendarWeekNav next   # → 2026-08-03
+
+  # Left pane must now show August 2026.
+  var cal_lines = BufLines('__Calendar__')
+  assert_true(HasLine(cal_lines, 'August'),
+    'Left pane must show August after navigating to 2026-08-03')
 enddef
 
 # vim: shiftwidth=2 softtabstop=2 noexpandtab
