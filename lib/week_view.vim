@@ -444,10 +444,19 @@ def ShowAppointmentDetails()
     lines->add($' Location:   {loc}')
   endif
   if !empty(body)
-    lines->add(' ')
-    for bline in split(body, "\n")
-      lines->add($' {bline}')
-    endfor
+    # Trim trailing whitespace per line, drop blank lines, limit to 10 lines.
+    var body_lines = split(body, "\n")
+      ->mapnew((_, l) => substitute(l, '\s\+$', '', ''))
+      ->filter((_, l) => l =~ '\S')
+    if !empty(body_lines)
+      lines->add(' ')
+      for bline in body_lines[: 9]
+        lines->add($' {bline}')
+      endfor
+      if len(body_lines) > 10
+        lines->add($' … ({len(body_lines) - 10} more lines)')
+      endif
+    endif
   endif
 
   popup_atcursor(lines, {
