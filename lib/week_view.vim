@@ -201,6 +201,7 @@ export def OpenWeekViewWindow(tabnew_bufnr: number): bool
   if exists('+winhighlight')
     setlocal winhighlight=StatusLine:Normal,StatusLineNC:Normal
   endif
+  nnoremap <silent> <buffer> <F5> <Cmd>CalendarRefresh<CR>
 
   # Bottom window — body (scrollable; week title shown in statusline)
   belowright split
@@ -621,9 +622,10 @@ enddef
 
 # Set buffer-local keymaps for the __WeekView__ body buffer.
 def WeekViewBuildKeymap()
-  nnoremap <silent> <buffer> K       <ScriptCmd>ShowAppointmentDetails()<CR>
-  nnoremap <silent> <buffer> <CR>    <ScriptCmd>OpenAppointmentBody()<CR>
+  nnoremap <silent> <buffer> K         <ScriptCmd>ShowAppointmentDetails()<CR>
+  nnoremap <silent> <buffer> <CR>      <ScriptCmd>OpenAppointmentBody()<CR>
   nnoremap <silent> <buffer> <C-Right> <Cmd>CalendarWeekNav next<CR>
   nnoremap <silent> <buffer> <C-Left>  <Cmd>CalendarWeekNav prev<CR>
   nnoremap <silent> <buffer> t         <Cmd>CalendarWeekNav today<CR>
+  nnoremap <silent> <buffer> <F5>      <Cmd>CalendarRefresh<CR>
 enddef

@@ -737,6 +737,7 @@ def CalendarBuildKeymap()
   nnoremap <silent> <buffer> ? <ScriptCmd>CalendarHelp()<CR>
   nnoremap <silent> <buffer> <C-CR> <ScriptCmd>ActionOpenDiaryAndClose()<CR>
   nnoremap <silent> <buffer> <S-CR> <ScriptCmd>ActionOpenDiaryAndClose()<CR>
+  nnoremap <silent> <buffer> <F5> <Cmd>CalendarRefresh<CR>
 
 enddef
 
