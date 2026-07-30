@@ -444,17 +444,33 @@ def ShowAppointmentDetails()
     lines->add($' Location:   {loc}')
   endif
   if !empty(body)
-    # Trim trailing whitespace per line, drop blank lines, limit to 10 lines.
+    # Trim trailing whitespace per line; collapse consecutive blank lines into
+    # one (Outlook artifacts) but keep single blanks for paragraph separation.
     var body_lines = split(body, "\n")
       ->mapnew((_, l) => substitute(l, '\s\+$', '', ''))
-      ->filter((_, l) => l =~ '\S')
-    if !empty(body_lines)
+    var compact: list<string> = []
+    var prev_blank = false
+    for l in body_lines
+      var is_blank = l !~ '\S'
+      if !(is_blank && prev_blank)
+        compact->add(l)
+      endif
+      prev_blank = is_blank
+    endfor
+    # Trim leading/trailing blank lines.
+    while !empty(compact) && compact[0] !~ '\S'
+      remove(compact, 0)
+    endwhile
+    while !empty(compact) && compact[-1] !~ '\S'
+      remove(compact, -1)
+    endwhile
+    if !empty(compact)
       lines->add(' ')
-      for bline in body_lines[: 9]
+      for bline in compact[: 9]
         lines->add($' {bline}')
       endfor
-      if len(body_lines) > 10
-        lines->add($' … ({len(body_lines) - 10} more lines)')
+      if len(compact) > 10
+        lines->add($' … ({len(compact) - 10} more lines)')
       endif
     endif
   endif
