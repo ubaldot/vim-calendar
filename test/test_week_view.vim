@@ -213,4 +213,144 @@ def g:Test_get_appointment_at_cursor()
     'Cursor on time column should return {}')
 enddef
 
+# ── Configure / display-type / cell-width tests ──────────────────────────────
+
+# Count the number of join characters ('┬' or '┼') in a separator line.
+# Each join marks a column boundary; the count equals the number of day columns.
+def CountJoins(line: string): number
+  return len(split(line, '┬', 1)) - 1
+enddef
+
+# Return the first header line that contains '┬' (the top separator row).
+def HeaderSepLine(hdr_lines: list<string>): string
+  var hits = filter(copy(hdr_lines), 'v:val =~# "┬"')
+  return empty(hits) ? '' : hits[0]
+enddef
+
+def g:Test_configure_work_display_type()
+  ResetConfig()
+  g:calendar_config.week_display_type = 'work'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  t:cal_week_key = '2026-07-27'
+  week_view.CallConnectHook(2026, 7, 27)
+
+  var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
+
+  # Header separator must have exactly 5 column joins (Mon–Fri).
+  var sep = HeaderSepLine(hdr)
+  assert_notequal('', sep, 'Header must have a ┬ separator line')
+  assert_equal(5, CountJoins(sep), 'work mode must render exactly 5 day columns')
+
+  # Day-label row must list weekdays but not weekend days.
+  assert_true(HasLine(hdr, 'Friday'),   'Friday must appear in work-mode header')
+  assert_false(HasLine(hdr, 'Saturday'), 'Saturday must not appear in work-mode header')
+  assert_false(HasLine(hdr, 'Sunday'),   'Sunday must not appear in work-mode header')
+enddef
+
+def g:Test_configure_us_display_type()
+  ResetConfig()
+  g:calendar_config.week_display_type = 'us'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  week_view.NavigateWeekView(2026, 7, 27)
+
+  var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
+
+  # Still 7 columns, but Sunday leads.
+  var sep = HeaderSepLine(hdr)
+  assert_notequal('', sep, 'Header must have a ┬ separator line')
+  assert_equal(7, CountJoins(sep), 'us mode must render 7 day columns')
+
+  assert_true(HasLine(hdr, 'Sunday'),  'Sunday must appear in us-mode header')
+  assert_true(HasLine(hdr, 'Monday'),  'Monday must appear in us-mode header')
+
+  # Sunday cell must be leftmost — appears before Monday in the label row.
+  var label_lines = filter(copy(hdr), 'v:val =~# "Sunday"')
+  assert_false(empty(label_lines), 'Day-label row must contain Sunday')
+  var sun_col = stridx(label_lines[0], 'Sunday')
+  var mon_col = stridx(label_lines[0], 'Monday')
+  assert_true(sun_col < mon_col, 'Sunday column must precede Monday in us mode')
+enddef
+
+def g:Test_configure_invalid_type_defaults_to_eu()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+
+  # Reconfigure with an invalid type — must silently fall back to 'eu'.
+  week_view.Configure('bogus', 16)
+  week_view.NavigateWeekView(2026, 7, 27)
+
+  var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
+  var sep = HeaderSepLine(hdr)
+  assert_notequal('', sep, 'Header must have a ┬ separator line')
+  assert_equal(7, CountJoins(sep), 'Invalid display type must fall back to eu (7 columns)')
+enddef
+
+def g:Test_configure_minimum_cell_width()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+
+  # Width 3 is below the minimum of 8 — must be clamped.
+  week_view.Configure('eu', 3)
+  week_view.NavigateWeekView(2026, 7, 27)
+
+  var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
+  var sep = HeaderSepLine(hdr)
+  assert_notequal('', sep, 'Header must have a ┬ separator line')
+  # First day cell is the second segment after splitting on '┬'.
+  var first_day_cell = split(sep, '┬', 1)[1]
+  assert_equal(8, strcharlen(first_day_cell),
+    'Cell width must be clamped to 8 when a value below the minimum is given')
+enddef
+
+def g:Test_configure_custom_cell_width()
+  ResetConfig()
+  g:calendar_config.week_cell_width = 20
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  week_view.NavigateWeekView(2026, 7, 27)
+
+  var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
+  var sep = HeaderSepLine(hdr)
+  assert_notequal('', sep, 'Header must have a ┬ separator line')
+  var first_day_cell = split(sep, '┬', 1)[1]
+  assert_equal(20, strcharlen(first_day_cell),
+    'Cell width must be 20 when week_cell_width = 20')
+enddef
+
+def g:Test_allday_events_work_mode()
+  ResetConfig()
+  g:calendar_config.week_display_type = 'work'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  t:cal_week_key = '2026-07-27'
+  week_view.CallConnectHook(2026, 7, 27)
+
+  var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
+  # Sprint Planning (Tue) and Company Offsite (Mon–Wed) both fall within Mon–Fri.
+  assert_true(HasLine(hdr, 'Sprint Planning'), 'Sprint Planning must appear in work-mode header')
+  assert_true(HasLine(hdr, 'Company Offsite'), 'Company Offsite must appear in work-mode header')
+  # No weekend day labels in work mode.
+  assert_false(HasLine(hdr, 'Saturday'), 'Saturday must not appear in work-mode header')
+  assert_false(HasLine(hdr, 'Sunday'),   'Sunday must not appear in work-mode header')
+enddef
+
+def g:Test_calendar_wipe()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+
+  CalendarWipe
+
+  assert_equal(-1, bufnr('__Calendar'),
+    '__Calendar buffer must not exist after CalendarWipe')
+  assert_equal(-1, bufnr(week_view.WEEK_BUF_NAME),
+    '__WeekView__ buffer must not exist after CalendarWipe')
+  assert_equal(-1, bufnr(week_view.WEEK_HDR_BUF_NAME),
+    '__WeekHeader__ buffer must not exist after CalendarWipe')
+enddef
+
 # vim: shiftwidth=2 softtabstop=2 noexpandtab
