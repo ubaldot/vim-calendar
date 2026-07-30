@@ -9,151 +9,352 @@ CONTENTS                                            *calendar-contents*
 
     1. Introduction ......... |calendar-introduction|
     2. Commands ............. |calendar-commands|
-    3. Commands ............. |calendar-mappings|
+    3. Mappings ............. |calendar-mappings|
     4. Configuration ........ |calendar-configuration|
-    5. Autocommand .......... |calendar-autocmds|
-    6. License .............. |calendar-license|
+    5. Week view ............ |calendar-week-view|
+    6. Address book ......... |calendar-address-book|
+    7. Autocommands ......... |calendar-autocmds|
+    8. License .............. |calendar-license|
 
 ==============================================================================
 INTRODUCTION                                    *calendar*
 
-This script creates a calendar window in vim.
+This script creates a calendar window in Vim.
 
 It is a forked and refactored version for Vim 9.0 of vim-calendar originally
 written by Yasuhiro Matsumoto <mattn.jp@gmail.com>
 
-You can create your own diaries and link them to the calendar.
-It does not rely on any external program, such as cal, etc.
+Key features:
+- Split-window or popup calendar display
+- ISO (EU), US, and work-week (Mon–Fri) layouts
+- Optional week-number column
+- Multiple configurable diary books (per-diary path, resolution, connect hook)
+- Diary pages opened from calendar days
+- Week view panel with Outlook/calendar appointment integration
+- Address-book omni-completion in diary files
+- Configurable holidays (custom highlight group)
 
-It requires Vim 9.0.
+Requires Vim 9.0 or later.
 
 ==============================================================================
 COMMANDS                                        *calendar-commands*
 
 vim-calendar makes the following commands available:
 
-                                                *calendar-:Calendar*
-:Calendar [year, [month]] Show calendar at this year and this month. Window
-                           position is controlled by
-                           |g:calendar_config.position|.
-                           - no arguments: current year/current month
-                           - one argument: year (current month)
-                           - two arguments: year and month
+                                                *calendar-:CalendarToggle*
+:CalendarToggle [year [month]]
+                    Toggle the calendar tab.  If the calendar tab is on a
+                    different tab page, switches to it; if it is the current
+                    tab, closes it; if it does not exist, opens it.
+                    - no arguments: current year / current month
+                    - one argument: specific year, current month
+                    - two arguments: specific year and month
+
+                    Recommended global mapping in your vimrc: >
+                        nnoremap W <Cmd>CalendarToggle<CR>
+<
+                                                *calendar-:CalendarRefresh*
+:CalendarRefresh    Re-fetch appointments for the currently visible week by
+                    calling the active diary's connect hook.  Useful after
+                    external data changes (e.g. a new meeting invite arrived).
 
                                             *calendar-:CalendarSearch*
-:CalendarSearch [keyword, [year]]
+:CalendarSearch [keyword [year]]
+                    Search keyword in the active diary's markdown files.
+                    Optionally restrict the search to a specific year.
 
-                            Search keyword in current calendar diary book.
-                            If year is passed, it limits the search
-                            to that specific year.
+                                            *calendar-:CalendarWipe*
+:CalendarWipe       Close the calendar tab (if open) and wipe all calendar-
+                    related buffers: __Calendar__, __WeekView__,
+                    __WeekHeader__, and __Appointment__.  Use this when you
+                    want a completely clean slate.
 
 ==============================================================================
 MAPPINGS                                        *calendar-mappings*
 
-h/j/k/l          move cursor
-|<Up>|             previous month,
-|<Down>|           next month,
-|<Left>|           previous year,
-|<Right>|          next year,
-t                go to today,
-|<CR>|             open/switch on cursor,
-|<Tab>| / |<S-Tab>|  next/prev diary,
-q or |<Esc>|       close,
+Left pane (split mode) ~
+
+    h / j / k / l      Move cursor
+    |<C-Up>|              Previous month
+    |<C-Down>|            Next month
+    |<C-Left>|            Previous year
+    |<C-Right>|           Next year
+    t                   Go to today
+    |<Tab>| / |<S-Tab>|   Next / previous diary
+    |<CR>|                Navigate week view to day under cursor; or open diary
+                        page (popup mode / no week view)
+    |<C-CR>| / |<S-CR>|   Close the calendar tab and open the diary entry for
+                        the day (or month) under the cursor directly
+    q                   Close
+    ?                   Show key-binding help popup
+
+Week view (right pane) ~
+
+    K                   Show a brief appointment preview popup at cursor
+                        (subject, time, organizer, location, body excerpt).
+                        Meeting boilerplate (Teams/Zoom links, rule lines)
+                        is automatically stripped from the preview.
+    |<CR>|                Open the full appointment body in a horizontal split
+                        below the week view.  The split buffer shows the
+                        complete body including any boilerplate.
+    q / |<Esc>|           Close the appointment body split
+
+Popup mode filter ~
+
+    Any key             Close the popup
 
 ==============================================================================
 CONFIGURATION                                        *calendar-configuration*
 
                                                 *g:calendar_config*
-Calendar options are configured through one dictionary: >
-  g:calendar_config = {
-        position: 'left',
-        cal_type: 'eu',
-        show_week_number: false,
-        number_of_months: 3,
-        holidays: {'2025-12-25': 'Christmas'},
-        search_grep: 'internal',
-        action: 'OpenDiaryPage',
-        auto_create_diary_dirs: false,
-        diaries_dict: {My_Diary: {path: '~/my_diary', resolution: 'day'}},
-        active_diary: 'My_Diary',
-      }
+All options live in a single dict: >
+
+    g:calendar_config = {
+      position:              'left',
+      cal_type:              'eu',
+      show_week_number:      false,
+      number_of_months:      3,
+      holidays:              {'2025-12-25': 'Christmas'},
+      search_grep:           'internal',
+      action:                'OpenDiaryPage',
+      auto_create_diary_dirs: false,
+      week_display_type:     'eu',
+      week_cell_width:       16,
+      diaries_dict: {
+        My_Diary: {
+          path:         '~/my_diary',
+          resolution:   'day',
+          connect:      'g:MyCalendarFetch',
+          address_book: '/tmp/address_book.json',
+        },
+      },
+      active_diary: 'My_Diary',
+    }
 <
 
-Supported keys in |g:calendar_config|:
+Top-level keys ~
 
-                 position       Calendar position.
+                 position       Calendar window position.
                                 Allowed values: 'left', 'right', 'popup'
                                 Default: 'left'
 
-                 cal_type       Calendar type:
-                                  - 'eu': week start on Monday,
-                                  - 'us': week start on Sunday,
-                                  - 'work': five week days.
+                 cal_type       Calendar column layout:
+                                  'eu'   — week starts Monday (Mon–Sun)
+                                  'us'   — week starts Sunday (Sun–Sat)
+                                  'work' — five days only (Mon–Fri)
                                 Default: 'eu'
 
-            show_week_number    If |true| shows the weekdays.
+            show_week_number    When |true|, shows ISO week numbers.
                                 Default: |false|
 
-            number_of_months    Number of months to be displayed.
+            number_of_months    Number of months shown side by side.
                                 Default: 3
 
-                    holidays    Dictionary to specify holidays.
-                                It is keyed by YYYY-MM-DD.
+                    holidays    Dict keyed by 'YYYY-MM-DD' with a label
+                                string as value.  Holiday cells receive the
+                                |CalHoliday| highlight group.
                                 Default: {}
 
-              search_grep       Used by |:CalendarSearch|.
-                                Can be:
-                                  - 'internal' (|:vimgrep|)
-                                  - 'external' (|:grep|)
+              search_grep       Engine used by |:CalendarSearch|:
+                                  'internal' — uses |:vimgrep|
+                                  'external' — uses |:grep|
                                 Default: 'internal'
 
-                      action    Function name called on <CR>.
-                                The function signature shall be:
+                      action    Function called when |<CR>| is pressed on a
+                                day cell (popup mode / no week view).
+                                Must match the signature: >
+                                    def MyFunc(
+                                      day: number,
+                                      month: number,
+                                      year: number,
+                                      week: number
+                                    )
+<                               Default: 'OpenDiaryPage' (built-in)
 
-                                        MyFunc(
-                                          day: number,
-                                          month: number,
-                                          year: number,
-                                          week: number
-                                        )
-
-                                Default: 'OpenDiaryPage' (internal function)
-
-      auto_create_diary_dirs    When |true|, creates missing diary
-                                directories automatically using
-                                `mkdir(path, 'p')`.
-                                When false, warns and asks the user
-                                to create directories manually.
+      auto_create_diary_dirs    When |true|, missing diary directories are
+                                created automatically via |mkdir()|.
+                                When |false|, the user is asked to create
+                                them manually.
                                 Default: |false|
 
-              diaries_dict      Dictionary containing the diaries information.
-                                The dictionary is of the form:
-                                      dict: {
-                                        name: {
-                                          path: string,
-                                          resolution: 'day' or 'month'
-                                          }
-                                      }
+          week_display_type     Column layout of the week view panel:
+                                  'eu'   — Mon–Sun (7 columns)
+                                  'us'   — Sun–Sat (7 columns)
+                                  'work' — Mon–Fri (5 columns)
+                                Default: 'eu'
 
-                                Resolution 'day' means that you can link a
-                                markdown file to each day of the calendar;
-                                Resolution 'month' means that you can link a
-                                markdown file to each month of the calendar.
-                                If path is omitted, it defaults to '~/my_diary'.
-                                Directory creation follows
-                                auto_create_diary_dirs.
-                                Default: {My_Diary: {path: '~/my_diary',
-                                          resolution: 'day'}}
+            week_cell_width     Width in characters of each day column in the
+                                week view.  Minimum: 8.
+                                Default: 16
 
-              active_diary      Diary name present in diaries_dict key
-                                Default: ''
+              diaries_dict      Dict of diary definitions.  Each entry: >
+                                    {
+                                      path:         string,   " required
+                                      resolution:   string,   " 'day'|'month'
+                                      connect:      string,   " optional
+                                      address_book: string,   " optional
+                                    }
+<
+                                path        Root directory for diary files.
+                                            Default: '~/my_diary'
 
+                                resolution  'day'   — one file per day,
+                                              e.g. 2026/January/01.md
+                                            'month' — one file per month,
+                                              e.g. 2026/January.md
+
+                                connect     Name of a global function that
+                                            fetches calendar appointments.
+                                            See |calendar-week-view|.
+
+                                address_book
+                                            Path to a JSON address-book file
+                                            used for omni-completion in diary
+                                            buffers.
+                                            See |calendar-address-book|.
+
+              active_diary      Key from diaries_dict to use on startup.
+                                Default: first key in diaries_dict
+
+==============================================================================
+WEEK VIEW                                       *calendar-week-view*
+
+When a diary has a `connect` hook defined, a week view panel appears to the
+right of the calendar.  It shows a scrollable 24-hour grid for the current
+week with appointment subjects and organizer names.  All-day events appear
+as banner rows above the grid.
+
+The connect hook ~
+
+The `connect` value is the name of a *global* Vim function (string).
+vim-calendar calls it whenever a new week needs data: >
+
+    def g:MyCalendarFetch(year: number, month: number, day: number): string
+      # Fetch appointments for the ISO week that contains (year, month, day).
+      # Write them to a JSON file and return the file path.
+      # Return '' on failure.
+      var tmp = tempname() .. '.json'
+      # ... write appointments to tmp ...
+      return tmp
+    enddef
+<
+The hook receives any day in the target week; use it to compute the Monday
+of that week if your data source requires exact boundaries.
+
+The returned path is read once by vim-calendar and then deleted.  Use a temp
+file (|tempname()|) or a fixed path (e.g. a cached file in %TEMP%).
+
+Appointments JSON format ~
+
+The JSON file must be a list of appointment objects: >
+
+    [
+      {
+        "start":     "2026-07-27T09:00:00",
+        "end":       "2026-07-27T10:00:00",
+        "subject":   "Team Meeting",
+        "organizer": "Alice Smith",
+        "location":  "Room A",
+        "body":      "Agenda:\n1. Sprint review\n2. Planning",
+        "entryid":   "<optional opaque id for future full-body fetch>"
+      },
+      {
+        "start":     "2026-07-28T00:00:00",
+        "end":       "2026-07-29T00:00:00",
+        "allday":    true,
+        "subject":   "Company Offsite",
+        "organizer": "HR"
+      }
+    ]
+<
+Required fields: `start`, `end`, `subject`
+Optional fields: `organizer`, `location`, `body`, `entryid`, `allday`
+
+All-day events ~
+    Set `"allday": true`.  The `end` date is exclusive (Outlook convention):
+    an event spanning Mon–Wed has `"end": "2026-07-30T00:00:00"`.
+    All-day events appear as banner rows above the day-label header.
+
+Outlook integration example (Windows / PowerShell) ~
+
+A typical `connect` function invokes a PowerShell script that queries the
+Outlook COM object and writes the JSON.  The fetch is synchronous so the
+week view populates immediately: >
+
+    def g:OutlookCalendarFetch(
+        year: number, month: number, day: number): string
+      var out = $'{$TEMP}\calendar_week.json'
+      var script = expand('~/vimfiles/.../fetch_calendar.ps1')
+      var cmd = $'powershell -NoProfile -File "{script}"'
+             .. $' -Year {year} -Month {month} -Day {day}'
+             .. $' -OutputFile "{out}"'
+      system(cmd)
+      return filereadable(out) ? out : ''
+    enddef
+<
+The PowerShell script should:
+1. Compute the Monday of the requested week
+2. Iterate `Application.GetNamespace("MAPI")` calendar items
+3. Filter by the week boundaries
+4. Write UTF-8 without BOM (`[IO.File]::WriteAllText`) — NOT `Set-Content`
+   (`Set-Content -Encoding UTF8` in PowerShell 5.1 writes a BOM that
+   confuses |json_decode()|)
+
+Appointment key bindings are documented under |calendar-mappings|.
+
+==============================================================================
+ADDRESS BOOK                                    *calendar-address-book*
+
+When a diary has an `address_book` path set, omni-completion (|i_CTRL-X_CTRL-O|)
+is automatically configured on any diary file opened via |<CR>| or |<C-CR>|.
+
+Address book JSON format ~
+
+The file is a list of name / email pairs: >
+
+    [
+      {"name": "Alice Smith",   "email": "alice@example.com"},
+      {"name": "Bob Jones",     "email": "bob@example.com"},
+      {"name": "Carol Chen",    "email": "carol@example.com"}
+    ]
+<
+This is the same format written by vim-outlook's address book builder, so
+the two plugins can share the same file: >
+
+    address_book: $'{$TEMP}\outlook_address_book.json'
+<
+Using completion ~
+
+In any diary file opened from the calendar, type a partial name or email
+fragment and press |CTRL-X| |CTRL-O|.  The completion menu shows:
+
+    word  →  Alice Smith <alice@example.com>   (inserted on selection)
+    abbr  →  Alice Smith
+    menu  →  alice@example.com
+
+The token boundary is at the last whitespace, colon, comma, or semicolon
+before the cursor.
+
+Generating the address book ~
+
+You can build the file from any source.  When using vim-outlook, the file is
+written automatically when the inbox cache is refreshed.  You can also write
+a small PowerShell script to export Outlook contacts: >
+
+    $contacts = $outlook.GetNamespace("MAPI").GetDefaultFolder(10).Items
+    $book = $contacts | ForEach-Object {
+        @{ name = $_.FullName; email = $_.Email1Address }
+    }
+    $book | ConvertTo-Json | Set-Content -Path $env:TEMP\outlook_address_book.json
+<
 
 ==============================================================================
 AUTOCOMMANDS                                   *calendar-autocmds*
 
-The plugin triggers one event just before drawing the calendar view: >
-  doautocmd User CalendarBeforeShow
+The plugin fires one event just before rendering the calendar view: >
+
+    autocmd User CalendarBeforeShow  " your code here
+<
 
 ==============================================================================
 LICENSE                                         *calendar-license*

@@ -6,45 +6,158 @@ A Vim 9.0 ported and refactored version of [mattn/calendar-vim][1].
 
 ## What it does
 
-- Split window or popup display
-- ISO and US style calendars
-- Diary pages opened from calendar days
-- Two diary resolutions:
-  - *month*: `~/my_diary/2026/January.md`
-  - *day*: `~/my_diary/2026/January/01.md`
-- Configurable holidays (custom highlight group)
-- Runtime behavior centralized in `g:calendar_config`
+- Split-window or popup calendar (EU, US, or work-week layout)
+- ISO week-number column (optional)
+- Multiple diary books — per-diary path, resolution, and Outlook connect hook
+- Diary pages opened from calendar days (`<CR>` navigates, `<C-CR>` opens and closes)
+- Week view panel with appointment grid (requires a `connect` hook)
+- Address-book omni-completion in diary files (`<C-X><C-O>`)
+- Configurable holidays
 
 ## Installation
 
-Install with your preferred plugin manager (minpac, vim-plug, etc.).
+Install with your preferred plugin manager (minpac, vim-plug, lazy.nvim, etc.).
+
+Requires **Vim 9.0** or later.
 
 ## Commands
 
-- `:Calendar` — open calendar for current month
-- `:Calendar {year}, {month}` — open a specific month
-- `:CalendarSearch {keyword}` — search in diary markdown files
+| Command | Description |
+|---|---|
+| `:CalendarToggle [year [month]]` | Toggle calendar tab (open / focus / close) |
+| `:CalendarRefresh` | Re-fetch appointments for the visible week |
+| `:CalendarSearch {keyword} [{year}]` | Search diary markdown files |
+| `:CalendarWipe` | Close tab and wipe all calendar buffers |
 
-Hit `?` once the calendar is opened to see the key bindings.
+Recommended mapping in your `.vimrc`:
+
+```vim
+nnoremap W <Cmd>CalendarToggle<CR>
+```
+
+Press `?` inside the calendar for a full key-binding reference.
 
 ## Minimal configuration
 
-```
+```vim
 g:calendar_config = {
-  position: 'left',
-  cal_type: 'eu',
+  position:         'left',   # 'left' | 'right' | 'popup'
+  cal_type:         'eu',     # 'eu' | 'us' | 'work'
   show_week_number: false,
-  holidays: {'2026-12-15': 'Christmas'},
+  number_of_months: 3,
+  holidays: {'2026-12-25': 'Christmas'},
   auto_create_diary_dirs: false,
   diaries_dict: {
     My_Diary: {path: '~/my_diary', resolution: 'month'},
-    Notes: {path: '~/notes', resolution: 'day'},
+    Notes:    {path: '~/notes',    resolution: 'day'},
   },
   active_diary: 'My_Diary',
 }
 ```
 
-For full help inside Vim: `:help calendar`
+## Week view with Outlook integration (Windows)
+
+Add a `connect` function and optional `week_display_type` / `week_cell_width`
+to your config:
+
+```vim
+# 1. The connect hook — called whenever a new week is needed.
+#    Must write a JSON file and return its path ('': failure).
+def g:OutlookCalendarFetch(year: number, month: number, day: number): string
+  var out    = $'{$TEMP}\calendar_week.json'
+  var script = expand('~/vimfiles/ps1_scripts/fetch_calendar.ps1')
+  system($'powershell -NoProfile -File "{script}"'
+      .. $' -Year {year} -Month {month} -Day {day} -OutputFile "{out}"')
+  return filereadable(out) ? out : ''
+enddef
+
+# 2. Config — diary with connect hook
+g:calendar_config = {
+  cal_type:          'eu',
+  week_display_type: 'work',   # 'eu' | 'us' | 'work'
+  week_cell_width:   18,
+  diaries_dict: {
+    Outlook: {
+      path:    '~/diary/outlook',
+      resolution: 'day',
+      connect: 'g:OutlookCalendarFetch',
+      address_book: $'{$TEMP}\outlook_address_book.json',
+    },
+  },
+  active_diary: 'Outlook',
+}
+```
+
+### Appointments JSON format
+
+The PowerShell script must write a UTF-8 **without BOM** JSON file
+(`[IO.File]::WriteAllText`, not `Set-Content -Encoding UTF8`):
+
+```json
+[
+  {
+    "start":     "2026-07-27T09:00:00",
+    "end":       "2026-07-27T10:00:00",
+    "subject":   "Team Meeting",
+    "organizer": "Alice Smith",
+    "location":  "Room A",
+    "body":      "Agenda:\n1. Sprint review\n2. Planning",
+    "entryid":   "<opaque Outlook EntryID>"
+  },
+  {
+    "start":   "2026-07-28T00:00:00",
+    "end":     "2026-07-29T00:00:00",
+    "allday":  true,
+    "subject": "Sprint Planning",
+    "organizer": "Dave"
+  }
+]
+```
+
+Required fields: `start`, `end`, `subject`.  
+Optional: `organizer`, `location`, `body`, `entryid`, `allday`.  
+All-day `end` is exclusive (Outlook convention: a Mon–Wed event ends on Thu midnight).
+
+### Week view key bindings
+
+| Key | Action |
+|---|---|
+| `K` | Popup preview (subject, time, organizer, location, body excerpt — Teams/Zoom links stripped) |
+| `<CR>` | Open full appointment body in a split below |
+| `q` / `<Esc>` | Close the appointment split |
+
+## Address book completion
+
+Set `address_book` in a diary entry to enable `<C-X><C-O>` omni-completion
+when editing diary files.  The file format (same as vim-outlook):
+
+```json
+[
+  {"name": "Alice Smith", "email": "alice@example.com"},
+  {"name": "Bob Jones",   "email": "bob@example.com"}
+]
+```
+
+When using vim-outlook, it writes this file automatically.  In pure-Outlook
+setups you can export contacts from PowerShell:
+
+```powershell
+$ol = New-Object -ComObject Outlook.Application
+$contacts = $ol.GetNamespace("MAPI").GetDefaultFolder(10).Items
+$book = $contacts | ForEach-Object {
+    [ordered]@{ name = $_.FullName; email = $_.Email1Address }
+} | Where-Object { $_.email }
+[IO.File]::WriteAllText(
+    "$env:TEMP\outlook_address_book.json",
+    ($book | ConvertTo-Json),
+    [Text.UTF8Encoding]::new($false))
+```
+
+## Full help
+
+```vim
+:help calendar
+```
 
 ## License
 
