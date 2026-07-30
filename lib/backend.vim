@@ -139,6 +139,9 @@ export def WeekDays(year: number, month: number, day: number): list<dict<any>>
 enddef
 
 # ─── Calendar grid helpers ────────────────────────────────────────────────────
+# Convert an ISO calendar dict to US layout (Sunday-first columns).
+# Input/output: {'Month YYYY': [[d0..d6, wk?], ...]}
+# The last Sunday of each week is carried to the first column of the next.
 export def ConvertISOtoUS(iso_calendar: dict<list<list<number>>>): dict<list<list<number>>>
     # Save heading (only key)
     const month_year = keys(iso_calendar)[0]

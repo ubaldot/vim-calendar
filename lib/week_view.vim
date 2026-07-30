@@ -60,6 +60,7 @@ def FormatEventCells(subject: string, organizer: string): list<string>
 enddef
 
 def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
+  # Format "DD Mon - DD Mon YYYY (week N)" or "DD - DD Mon YYYY" when same month.
   var first = wdays[0]
   var last  = wdays[6]
   if first.month == last.month
@@ -72,12 +73,12 @@ def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
     last.year, week_num)
 enddef
 
+# Return events from the events dict that start in the given hour slot.
 def FindHourEvents(events: dict<any>, date_key: string, hour: number): list<dict<any>>
   return copy(get(events, date_key, []))->filter(
     (_, ev) => str2nr(split(get(ev, 'start', '00:00'), ':')[0]) == hour)
 enddef
 
-# Highlight today's cell in the header window using a simple day pattern.
 # Render banner rows for all-day events above the hour grid.
 # One row per event; each row spans its start→end columns with dashes.
 # Outlook all-day end is exclusive (next-day midnight), so end_date is

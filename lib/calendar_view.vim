@@ -42,6 +42,7 @@ export def SetActiveDiary(name: string, path: string)
 enddef
 
 export def WeekNumberEnabled(): bool
+  # Whether ISO week numbers are rendered as a leading column.
   return cfg_show_week_number
 enddef
 
@@ -60,7 +61,10 @@ def DayCols(): number
   return cfg_cal_type ==# 'work' ? 5 : 7
 enddef
 
-# Get month weeks from backend and adapt shape for cal_type.
+# Return the week rows for (year, month) shaped for cfg_cal_type.
+# 'eu' (default): Mon–Sun columns, ISO week number appended when enabled.
+# 'us': Sun–Sat columns; last Sunday of each row carries to next row start.
+# 'work': Mon–Fri only, all-zero rows stripped.
 def MonthWeeks(year: number, month: number): list<list<number>>
   var weeks: list<list<number>> = values(backend.CalendarMonth_iso8601(year, month, WeekNumberEnabled()))[0]
 
@@ -133,12 +137,16 @@ def IsHoliday(year: number, month: number, day: number): bool
 enddef
 
 # Build diary file path for current resolution mode.
+# Build diary file path under cfg_diary_path for the given date.
+# Resolution is always 'month' (one file per month: YYYY/MonthName.md).
 export def DiaryFilePath(year: number, month: number, _day: number): string
   var year_dir = $"{expand(cfg_diary_path)}/{printf('%04d', year)}"
   return $"{year_dir}/{MonthName(month)}.md"
 enddef
 
 # Build one month text block and local highlight positions.
+# Returns a dict with rendered lines and matchpos lists for today/sat/sun/
+# holiday/week, plus a cell list used by the popup selection cursor.
 def BuildMonthLines(year: number, month: number): dict<any>
   var weeks = MonthWeeks(year, month)
   var labels = WeekLabels()
@@ -228,7 +236,8 @@ def ShiftPositions(pos: list<list<number>>, line_off: number, col_off: number): 
   return pos->mapnew((_, p) => [p[0] + line_off, p[1] + col_off, p[2]])
 enddef
 
-# Compose multi-month vertical view.
+# Stack multiple month blocks vertically, accumulating highlight positions
+# and adjusting line numbers as each block is appended.
 def BuildVerticalComposite(months: list<dict<any>>): dict<any>
   var out_lines: list<string> = []
   var blocks: list<dict<any>> = []
@@ -278,7 +287,8 @@ def BuildVerticalComposite(months: list<dict<any>>): dict<any>
   return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, holiday: holiday_all, week: week_all, cells: cells_all}
 enddef
 
-# Append diary selection section and return diary row mapping.
+# Append a diary-selector section to lines when multiple diaries are configured.
+# Returns a line-number → diary-name map so Action() can detect clicks on it.
 def AppendDiarySection(lines: list<string>): dict<string>
   var diary_rows: dict<string> = {}
   if len(cfg_diaries) <= 1
@@ -296,7 +306,9 @@ def AppendDiarySection(lines: list<string>): dict<string>
   return diary_rows
 enddef
 
-# Build full rendered view for the selected base month.
+# Build the full rendered view (lines + highlight positions + block metadata)
+# centred on base_month ± offset months.  Adds the help hint header and the
+# diary-selector section.  This is the single entry point for rendering.
 export def BuildView(base_year: number, base_month: number): dict<any>
   var months: list<dict<any>> = []
 

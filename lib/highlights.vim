@@ -17,7 +17,9 @@ export def WeekHeader(win_id: number, today_week_key: string)
   win_execute(win_id, $"call matchadd('CalWeekToday', ' {today_d},[^│]*')")
 enddef
 
-# Update only the CalCurrWeek match in the current window.
+# Update only the CalCurrWeek match in the current window (the week-number
+# column highlight that follows navigation).  Removes the old match by ID,
+# then searches for the current week number and re-adds it.
 export def UpdateCurrWeek()
   try | matchdelete(get(w:, 'cal_curr_week', -1)) | catch | endtry
   var curr_week_num = get(t:, 'cal_curr_week_num', 0)
@@ -35,6 +37,8 @@ export def UpdateCurrWeek()
 enddef
 
 # Apply all calendar match highlights to the current (split) window.
+# Clears existing matches first, then adds today/sat/sun/holiday/week marks
+# and static patterns (help hint, header, diary list, weekday row).
 export def Apply(view: dict<any>, week_num_enabled: bool)
   clearmatches()
 
@@ -53,7 +57,9 @@ export def Apply(view: dict<any>, week_num_enabled: bool)
   matchadd('CalWeekdays', '^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$', 22)
 enddef
 
-# Apply all calendar match highlights to a popup window.
+# Apply all calendar match highlights to a popup window via win_execute.
+# Mirrors Apply() but all match calls are sent as legacy strings because
+# popup windows do not share the Vim9 script context.
 export def ApplyPopup(winid: number, view: dict<any>, week_num_enabled: bool)
   if winid <= 0
     return

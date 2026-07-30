@@ -149,6 +149,9 @@ def ApplyPopupHighlights(winid: number, view: dict<any>)
   highlights.ApplyPopup(winid, view, calendar_view.WeekNumberEnabled())
 enddef
 
+# Move the popup selection cursor to a day cell by index.
+# Removes the previous CalPopupSelection match, adds one for the new cell,
+# and repositions the popup cursor.  Index is clamped to valid range.
 def PopupSetSelectedDay(index: number)
   if popup_id <= 0 || empty(popup_day_cells)
     return
@@ -217,6 +220,8 @@ def PopupMoveSelection(key: string)
   PopupSetSelectedDay(next_idx)
 enddef
 
+# Cycle through configured diaries by step (+1 / -1), activate the next one,
+# re-render, and update the week view if it is open.
 def PopupCycleDiary(step: number): bool
   if len(cfg_diaries) <= 1
     return false
@@ -251,6 +256,7 @@ def PopupCycleDiary(step: number): bool
   return true
 enddef
 
+# Open the diary page for the currently selected popup day via cfg_action.
 def PopupOpenSelectedDay(): bool
   if popup_day_index < 0 || popup_day_index >= len(popup_day_cells)
     return false
@@ -264,6 +270,10 @@ def PopupOpenSelectedDay(): bool
   function(action_name)(day, popup_month, popup_year, week)
   return true
 enddef
+# Build and display the view for (base_year, base_month).
+# In popup mode: (re-)creates the popup window.
+# In split mode: writes to the __Calendar__ buffer, resizes the window,
+# sets keymaps and highlights, and positions the cursor on today.
 def RenderView(base_year: number, base_month: number)
 
   var view = calendar_view.BuildView(base_year, base_month)
@@ -339,6 +349,8 @@ def FindBlockAtCursor(): dict<any>
   return {}
 enddef
 
+# Switch active diary, update cfg_* and calendar_view state, and clear the
+# week cache so the next render fetches fresh data.
 def ActivateDiary(name: string): bool
   if !has_key(cfg_diaries, name)
     return false
@@ -383,7 +395,8 @@ def SwitchDiaryAtCursor(): bool
   return true
 enddef
 
-# Handle calendar navigation actions and re-render.
+# Translate a navigation keyword into a year/month change and re-render.
+# Returns true if the arg was a known navigation action (consumed).
 def HandleNavigation(arg: string): bool
   var y = state_base_year
   var m = state_base_month
@@ -419,7 +432,10 @@ def HandleNavigation(arg: string): bool
   return true
 enddef
 
-# Main action for operations specified in CalendarBuildKeymap()
+# Central dispatcher for all key-mapped actions.
+# With arg: delegates to HandleNavigation (month/year jumps, today, diary cycle).
+# Without arg (<CR>): switches diary if on the selector section, otherwise
+# navigates the week view (split) or opens the diary page (popup).
 def Action(arg: string = '')
 
   if !empty(arg) && HandleNavigation(arg)
@@ -487,7 +503,8 @@ def Action(arg: string = '')
   function(action_name)(day, month, year, week)
 enddef
 
-# Close split window or popup calendar.
+# Close the popup or, in split mode, close the calendar tab (or wipe buffers
+# when it is the only tab).
 def Close()
   if popup_id > 0
     popup_close(popup_id)
@@ -506,6 +523,8 @@ def Close()
   endif
 enddef
 
+# Ensure path exists, creating it if cfg_auto_create_diary_dirs is set.
+# Prompts the user to create it manually when auto-creation is off.
 def EnsureDiaryDir(path: string): bool
   if isdirectory(path)
     return true
@@ -615,7 +634,10 @@ def CalendarBuildKeymap()
 
 enddef
 
-# Popup key filter for navigation and actions.
+# Key filter for the calendar popup window.
+# Handles navigation (arrows, t), day selection (hjkl, <CR>), diary cycling
+# (Tab/S-Tab), help (?), and close (q/<Esc>).  Must return true for handled
+# keys so Vim suppresses default popup behaviour.
 def PopupFilter(id: number, key: string): bool
   if key ==# 'q' || key ==# "\<Esc>"
     popup_close(id)
@@ -699,7 +721,9 @@ export def CalendarToggle(year: number = -1, month: number = -1)
   week_view.CallConnectHook()
 enddef
 
-# Main entrypoint used by :Calendar command.
+# Main entrypoint called by :Calendar.
+# In split mode: opens a new tab with the calendar pane and (if configured)
+# the week view pane side by side.  In popup mode: creates a centred popup.
 export def Show(year: number = -1, month: number = -1): string
 
   if !InitVariables()
@@ -731,7 +755,8 @@ export def Show(year: number = -1, month: number = -1): string
   return ''
 enddef
 
-# Search keyword across diary markdown files.
+# Search a keyword across diary markdown files using vimgrep or external grep
+# depending on cfg_search_grep.  Results land in the quickfix list.
 export def Search(keyword: string, year: string = '')
 
   if !InitVariables()
