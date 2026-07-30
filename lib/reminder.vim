@@ -18,6 +18,7 @@ vim9script
 var scheduled:    dict<number> = {}   # day-scoped key → timer_id
 var dismissed:    dict<bool>   = {}   # day-scoped key → true
 var sound_enabled = true
+var popup_zindex  = 200               # incremented per popup so stacked reminders are visible
 
 # Stable, day-scoped key for a meeting.
 # Uses entryid when available; falls back to start|subject.
@@ -142,12 +143,15 @@ def ShowReminderPopup(date_key: string, key: string, meeting: dict<any>, minutes
   lines->add('  Esc: snooze 5 min   d: dismiss')
   lines->add('')
 
+  # Each popup gets a higher zindex so simultaneous reminders stack visibly.
+  popup_zindex += 1
+  var zidx = popup_zindex
   popup_create(lines, {
     title:       ' 🔔 Starting ' .. when_str .. ' ',
     border:      [1, 1, 1, 1],
     borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
     pos:         'center',
-    zindex:      200,
+    zindex:      zidx,
     filter:      function(ReminderFilter, [date_key, key, meeting]),
     mapping:     0,
   })
