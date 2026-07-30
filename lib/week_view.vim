@@ -250,7 +250,11 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   hdr_lines->add(WeekSepLine('┬', n_days))
   var day_labels = display_wdays->mapnew(
     (i, d) => CellText(printf('%d, %s', d.day, day_labels_full[i])))
-  hdr_lines->add(WeekDataRow(' UTC+2', day_labels))
+  var tz_raw = strftime('%z')  # e.g. '+0200' or '-0500'
+  var tz_label = tz_raw =~# '^[+-]\d\{4}$'
+    ? $'UTC{tz_raw[0 : 2]}:{tz_raw[3 : 4]}'
+    : 'UTC'
+  hdr_lines->add(WeekDataRow($' {tz_label}', day_labels))
   hdr_lines->add(WeekSepLine('┼', n_days))
 
   setbufvar(hdr_buf, '&modifiable', 1)
