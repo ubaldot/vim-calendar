@@ -38,6 +38,11 @@ enddef
 
 # ─── Render helpers ──────────────────────────────────────────────────────────
 
+# Strip carriage returns (\r) left by Windows line endings in JSON fields.
+def StripCR(s: string): string
+  return substitute(s, "\r", '', 'g')
+enddef
+
 def MonthName(month: number): string
   return backend.month_num_to_str[printf('%02d', month)]
 enddef
@@ -336,8 +341,8 @@ def LoadAppointments(path: string)
       allday->add({
         start_date: strpart(get(item, 'start', ''), 0, 10),
         end_date:   printf('%04d-%02d-%02d', last.year, last.month, last.day),
-        subject:    get(item, 'subject',   ''),
-        organizer:  get(item, 'organizer', ''),
+        subject:    StripCR(get(item, 'subject',   '')),
+        organizer:  StripCR(get(item, 'organizer', '')),
       })
     else
       var date_key = strpart(get(item, 'start', ''), 0, 10)
@@ -347,10 +352,10 @@ def LoadAppointments(path: string)
       events[date_key]->add({
         start:     strpart(get(item, 'start', ''), 11, 5),
         end:       strpart(get(item, 'end',   ''), 11, 5),
-        subject:   get(item, 'subject',   ''),
-        organizer: get(item, 'organizer', ''),
-        location:  get(item, 'location',  ''),
-        body:      get(item, 'body',      ''),
+        subject:   StripCR(get(item, 'subject',   '')),
+        organizer: StripCR(get(item, 'organizer', '')),
+        location:  StripCR(get(item, 'location',  '')),
+        body:      StripCR(get(item, 'body',      '')),
       })
     endif
   endfor
