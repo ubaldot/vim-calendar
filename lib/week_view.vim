@@ -356,6 +356,7 @@ def LoadAppointments(path: string)
         organizer: StripCR(get(item, 'organizer', '')),
         location:  StripCR(get(item, 'location',  '')),
         body:      StripCR(get(item, 'body',      '')),
+        entryid:   get(item, 'entryid', ''),
       })
     endif
   endfor
@@ -414,14 +415,34 @@ enddef
 
 # ─── Week view keymaps and popups ────────────────────────────────────────────
 
+# Collapse consecutive blank lines into one, trim trailing whitespace per line,
+# and strip leading/trailing blank lines.  Intentional single blank lines
+# (paragraph separators) are preserved.
+def CompactBody(body: string): list<string>
+  var lines = split(body, "\n")
+    ->mapnew((_, l) => substitute(l, '\s\+$', '', ''))
+  var out: list<string> = []
+  var prev_blank = false
+  for l in lines
+    var is_blank = l !~ '\S'
+    if !(is_blank && prev_blank)
+      out->add(l)
+    endif
+    prev_blank = is_blank
+  endfor
+  while !empty(out) && out[0]  !~ '\S' | remove(out, 0)   | endwhile
+  while !empty(out) && out[-1] !~ '\S' | remove(out, -1)  | endwhile
+  return out
+enddef
+
 # Any key closes the appointment detail popup.
 def AppointmentDetailFilter(id: number, key: string): bool
   popup_close(id)
   return true
 enddef
 
-# Show a popup_atcursor with the full details of the appointment under the cursor.
-# Does nothing when the cursor is not on an appointment.
+# Show a popup_atcursor with a brief preview of the appointment under the cursor.
+# Body is limited to 10 non-empty lines.  Does nothing on empty cells.
 def ShowAppointmentDetails()
   var appt = GetAppointmentAtCursor()
   if empty(appt)
@@ -444,26 +465,7 @@ def ShowAppointmentDetails()
     lines->add($' Location:   {loc}')
   endif
   if !empty(body)
-    # Trim trailing whitespace per line; collapse consecutive blank lines into
-    # one (Outlook artifacts) but keep single blanks for paragraph separation.
-    var body_lines = split(body, "\n")
-      ->mapnew((_, l) => substitute(l, '\s\+$', '', ''))
-    var compact: list<string> = []
-    var prev_blank = false
-    for l in body_lines
-      var is_blank = l !~ '\S'
-      if !(is_blank && prev_blank)
-        compact->add(l)
-      endif
-      prev_blank = is_blank
-    endfor
-    # Trim leading/trailing blank lines.
-    while !empty(compact) && compact[0] !~ '\S'
-      remove(compact, 0)
-    endwhile
-    while !empty(compact) && compact[-1] !~ '\S'
-      remove(compact, -1)
-    endwhile
+    var compact = CompactBody(body)
     if !empty(compact)
       lines->add(' ')
       for bline in compact[: 9]
@@ -484,7 +486,60 @@ def ShowAppointmentDetails()
   })
 enddef
 
+const APPT_BUF_NAME = '__Appointment__'
+
+# Open the full appointment content in a horizontal split below.
+# Wipes any previous __Appointment__ buffer first.
+# <Esc> or q closes the window.  Does nothing on empty cells.
+def OpenAppointmentBody()
+  var appt = GetAppointmentAtCursor()
+  if empty(appt)
+    return
+  endif
+
+  var bn = bufnr(APPT_BUF_NAME)
+  if bn > 0
+    execute $'bwipeout! {bn}'
+  endif
+
+  var subj  = get(appt, 'subject',   '')
+  var start_t = get(appt, 'start',   '')
+  var end_t   = get(appt, 'end',     '')
+  var org   = get(appt, 'organizer', '')
+  var loc   = get(appt, 'location',  '')
+  var body  = get(appt, 'body',      '')
+
+  var lines: list<string> = []
+  lines->add($'Subject:   {subj}')
+  lines->add($'Time:      {start_t} – {end_t}')
+  if !empty(org) | lines->add($'Organizer: {org}') | endif
+  if !empty(loc) | lines->add($'Location:  {loc}') | endif
+  lines->add(repeat('─', 60))
+  lines->add('')
+  if !empty(body)
+    extend(lines, CompactBody(body))
+  else
+    lines->add('(no body)')
+  endif
+
+  belowright split
+  enew
+  execute $'file {APPT_BUF_NAME}'
+  setlocal buftype=nofile bufhidden=wipe noswapfile nobuflisted
+  setlocal nomodifiable textwidth=0 colorcolumn=0 fdc=0 nonu wrap
+  if has('+relativenumber') || exists('+relativenumber')
+    setlocal nornu
+  endif
+  setlocal modifiable
+  setline(1, lines)
+  setlocal nomodifiable
+
+  nnoremap <silent> <buffer> q     <Cmd>bwipeout!<CR>
+  nnoremap <silent> <buffer> <Esc> <Cmd>bwipeout!<CR>
+enddef
+
 # Set buffer-local keymaps for the __WeekView__ body buffer.
 def WeekViewBuildKeymap()
-  nnoremap <silent> <buffer> K <ScriptCmd>ShowAppointmentDetails()<CR>
+  nnoremap <silent> <buffer> K  <ScriptCmd>ShowAppointmentDetails()<CR>
+  nnoremap <silent> <buffer> <CR> <ScriptCmd>OpenAppointmentBody()<CR>
 enddef
