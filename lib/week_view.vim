@@ -11,8 +11,10 @@ import autoload "./highlights.vim"
 export const WEEK_BUF_NAME = '__WeekView__'
 export const WEEK_HDR_BUF_NAME = '__WeekHeader__'
 const WEEK_TIME_COL = 8
-const WEEK_DAY_COL  = 16
 const WEEK_DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+var week_day_col          = 16   # cell width; set via Configure()
+var cfg_week_display_type = 'eu' # 'eu' | 'us' | 'work'; set via Configure()
 
 var week_cache: dict<dict<list<any>>> = {}
 
@@ -27,6 +29,41 @@ export def SetConnectFunc(name: string)
   t:cal_connect_func = name
   week_cache = {}
   appt_line_map = {}
+enddef
+
+# Configure display type and cell width.  Called from frontend.InitVariables.
+export def Configure(display_type: string, cell_width: number)
+  var valid = ['eu', 'us', 'work']
+  cfg_week_display_type = index(valid, tolower(display_type)) >= 0
+    ? tolower(display_type)
+    : 'eu'
+  week_day_col = max([8, cell_width])
+enddef
+
+# Return the number of displayed day columns.
+def NumDays(): number
+  return cfg_week_display_type ==# 'work' ? 5 : 7
+enddef
+
+# Return wdays reordered for the configured display type.
+# backend.WeekDays always returns [Mon..Sun] (indices 0-6).
+def DisplayWdays(wdays: list<dict<any>>): list<dict<any>>
+  if cfg_week_display_type ==# 'work'
+    return wdays[0 : 4]                      # Mon–Fri
+  elseif cfg_week_display_type ==# 'us'
+    return [wdays[6]] + wdays[0 : 5]         # Sun–Sat
+  endif
+  return wdays                                # eu: Mon–Sun
+enddef
+
+# Return full day-name labels in display order.
+def DayFullLabels(): list<string>
+  if cfg_week_display_type ==# 'work'
+    return WEEK_DAY_FULL[0 : 4]
+  elseif cfg_week_display_type ==# 'us'
+    return [WEEK_DAY_FULL[6]] + WEEK_DAY_FULL[0 : 5]
+  endif
+  return WEEK_DAY_FULL
 enddef
 
 # Return the Monday date string ('YYYY-MM-DD') for the ISO week containing
@@ -47,19 +84,19 @@ def MonthName(month: number): string
   return backend.month_num_to_str[printf('%02d', month)]
 enddef
 
-def WeekSepLine(join_char: string): string
+def WeekSepLine(join_char: string, n_days: number): string
   return repeat('─', WEEK_TIME_COL) .. join_char ..
-    join(range(7)->mapnew((_, _) => repeat('─', WEEK_DAY_COL)), join_char)
+    join(range(n_days)->mapnew((_, _) => repeat('─', week_day_col)), join_char)
 enddef
 
 def WeekDataRow(time_cell: string, day_cells: list<string>): string
   var tc = printf('%-*s', WEEK_TIME_COL, strcharpart(time_cell, 0, WEEK_TIME_COL))
   return tc .. '│' .. join(day_cells->mapnew(
-    (_, c) => printf('%-*s', WEEK_DAY_COL, strcharpart(c, 0, WEEK_DAY_COL))), '│')
+    (_, c) => printf('%-*s', week_day_col, strcharpart(c, 0, week_day_col))), '│')
 enddef
 
 def CellText(text: string): string
-  var max_len = WEEK_DAY_COL - 1
+  var max_len = week_day_col - 1
   var content = strcharlen(text) > max_len
     ? strcharpart(text, 0, max_len - 3) .. '...'
     : text
@@ -73,7 +110,7 @@ enddef
 def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
   # Format "DD Mon - DD Mon YYYY (week N)" or "DD - DD Mon YYYY" when same month.
   var first = wdays[0]
-  var last  = wdays[6]
+  var last  = wdays[-1]
   if first.month == last.month
     return printf('%d - %d %s %d (week %d)',
       first.day, last.day, MonthName(first.month), first.year, week_num)
@@ -94,17 +131,19 @@ enddef
 # One row per event; each row spans its start→end columns with dashes.
 # Outlook all-day end is exclusive (next-day midnight), so end_date is
 # already adjusted by 1 day before being stored.
+# wdays must already be in display order (output of DisplayWdays).
 def AllDayRows(events: dict<any>, wdays: list<dict<any>>): list<string>
   var allday = get(events, 'allday', [])
   if empty(allday)
     return []
   endif
 
-  var week_start = printf('%04d-%02d-%02d', wdays[0].year, wdays[0].month, wdays[0].day)
-  var week_end   = printf('%04d-%02d-%02d', wdays[6].year, wdays[6].month, wdays[6].day)
+  var n_days     = len(wdays)
+  var week_start = printf('%04d-%02d-%02d', wdays[0].year,    wdays[0].month,    wdays[0].day)
+  var week_end   = printf('%04d-%02d-%02d', wdays[-1].year,   wdays[-1].month,   wdays[-1].day)
 
   var date_to_col: dict<number> = {}
-  for i in range(7)
+  for i in range(n_days)
     var d = wdays[i]
     date_to_col[printf('%04d-%02d-%02d', d.year, d.month, d.day)] = i
   endfor
@@ -119,10 +158,10 @@ def AllDayRows(events: dict<any>, wdays: list<dict<any>>): list<string>
     endif
 
     var start_col = has_key(date_to_col, ev_start) ? date_to_col[ev_start] : 0
-    var end_col   = has_key(date_to_col, ev_end)   ? date_to_col[ev_end]   : 6
+    var end_col   = has_key(date_to_col, ev_end)   ? date_to_col[ev_end]   : n_days - 1
 
-    var left_pad   = repeat(' ', WEEK_TIME_COL + 1 + start_col * (WEEK_DAY_COL + 1))
-    var cell_width = (end_col - start_col + 1) * (WEEK_DAY_COL + 1) - 1
+    var left_pad   = repeat(' ', WEEK_TIME_COL + 1 + start_col * (week_day_col + 1))
+    var cell_width = (end_col - start_col + 1) * (week_day_col + 1) - 1
     var subj = get(ev, 'subject', '')
     var org  = get(ev, 'organizer', '')
     var label = $'{subj} ({org}) '
@@ -191,23 +230,26 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   endif
 
   t:cal_week_key = WeekCacheKey(year, month, day)
-  var wdays    = backend.WeekDays(year, month, day)
-  var week_num = backend.ISOWeekNum(year, month, day)
+  var wdays         = backend.WeekDays(year, month, day)
+  var display_wdays = DisplayWdays(wdays)
+  var n_days        = len(display_wdays)
+  var week_num      = backend.ISOWeekNum(year, month, day)
+  var day_labels_full = DayFullLabels()
 
   # ── Header ────────────────────────────────────────────────────────────────
-  var title = WeekHeaderStr(wdays, week_num)
+  var title = WeekHeaderStr(display_wdays, week_num)
   var hdr_lines: list<string> = []
 
-  var allday_rows = AllDayRows(events, wdays)
+  var allday_rows = AllDayRows(events, display_wdays)
   for row in allday_rows
     hdr_lines->add(row)
   endfor
 
-  hdr_lines->add(WeekSepLine('┬'))
-  var day_labels = wdays->mapnew(
-    (i, d) => CellText(printf('%d, %s', d.day, WEEK_DAY_FULL[i])))
+  hdr_lines->add(WeekSepLine('┬', n_days))
+  var day_labels = display_wdays->mapnew(
+    (i, d) => CellText(printf('%d, %s', d.day, day_labels_full[i])))
   hdr_lines->add(WeekDataRow(' UTC+2', day_labels))
-  hdr_lines->add(WeekSepLine('┼'))
+  hdr_lines->add(WeekSepLine('┼', n_days))
 
   setbufvar(hdr_buf, '&modifiable', 1)
   deletebufline(hdr_buf, 1, '$')
@@ -231,7 +273,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
       hour7_line = len(body_lines) + 1 + &scrolloff
     endif
     var day_evs: list<list<dict<any>>> = []
-    for d in wdays
+    for d in display_wdays
       day_evs->add(FindHourEvents(events,
         printf('%04d-%02d-%02d', d.year, d.month, d.day), h))
     endfor
@@ -264,7 +306,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
         appt_line_map[string(org_lnum)]  = appt_row
       endif
     endfor
-    body_lines->add(WeekSepLine('┼'))
+    body_lines->add(WeekSepLine('┼', n_days))
   endfor
 
   setbufvar(body_buf, '&modifiable', 1)
@@ -406,7 +448,7 @@ export def GetAppointmentAtCursor(): dict<any>
   if col('.') <= WEEK_TIME_COL + 1
     return {}
   endif
-  var col_idx = (col('.') - WEEK_TIME_COL - 2) / (WEEK_DAY_COL + 1)
+  var col_idx = (col('.') - WEEK_TIME_COL - 2) / (week_day_col + 1)
   if col_idx < 0 || col_idx >= len(row)
     return {}
   endif
@@ -486,7 +528,7 @@ def ShowAppointmentDetails()
   })
 enddef
 
-const APPT_BUF_NAME = '__Appointment__'
+export const APPT_BUF_NAME = '__Appointment__'
 
 # Open the full appointment content in a horizontal split below.
 # Wipes any previous __Appointment__ buffer first.
@@ -542,4 +584,5 @@ enddef
 def WeekViewBuildKeymap()
   nnoremap <silent> <buffer> K  <ScriptCmd>ShowAppointmentDetails()<CR>
   nnoremap <silent> <buffer> <CR> <ScriptCmd>OpenAppointmentBody()<CR>
+  nnoremap <silent> <buffer> W  <Cmd>CalendarToggle<CR>
 enddef

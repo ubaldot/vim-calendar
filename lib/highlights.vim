@@ -106,6 +106,6 @@ hi def link CalCurrList Error
 hi def link CalHelpHint Question
 hi def link CalPopupSelection Visual
 hi def link CalCurrWeek Visual
-hi def link CalWeekToday Visual
+hi def CalWeekToday term=bold cterm=bold gui=bold
 
 # vim: shiftwidth=2 softtabstop=2 noexpandtab

@@ -100,6 +100,11 @@ def InitVariables(): bool
     diary_path:        cfg_diary_path,
   })
 
+  week_view.Configure(
+    get(cfg, 'week_display_type', 'eu'),
+    max([8, get(cfg, 'week_cell_width', 16)])
+  )
+
   return true
 
 enddef
@@ -621,16 +626,16 @@ enddef
 def CalendarBuildKeymap()
 
   nnoremap <silent> <buffer> q <ScriptCmd>Close()<CR>
-  nnoremap <silent> <buffer> <Esc> <ScriptCmd>Close()<CR>
   nnoremap <silent> <buffer> <CR> <ScriptCmd>Action()<CR>
-  nnoremap <silent> <buffer> <Down> <ScriptCmd>Action('NextMonth')<CR>
-  nnoremap <silent> <buffer> <Up> <ScriptCmd>Action('PrevMonth')<CR>
-  nnoremap <silent> <buffer> <Right> <ScriptCmd>Action('NextYear')<CR>
-  nnoremap <silent> <buffer> <Left> <ScriptCmd>Action('PrevYear')<CR>
+  nnoremap <silent> <buffer> <C-Down> <ScriptCmd>Action('NextMonth')<CR>
+  nnoremap <silent> <buffer> <C-Up> <ScriptCmd>Action('PrevMonth')<CR>
+  nnoremap <silent> <buffer> <C-Right> <ScriptCmd>Action('NextYear')<CR>
+  nnoremap <silent> <buffer> <C-Left> <ScriptCmd>Action('PrevYear')<CR>
   nnoremap <silent> <buffer> t <ScriptCmd>Action('Today')<CR>
   nnoremap <silent> <buffer> <Tab> <ScriptCmd>Action('NextDiary')<CR>
   nnoremap <silent> <buffer> <S-Tab> <ScriptCmd>Action('PrevDiary')<CR>
   nnoremap <silent> <buffer> ? <ScriptCmd>CalendarHelp()<CR>
+  nnoremap <silent> <buffer> W <Cmd>CalendarToggle<CR>
 
 enddef
 
@@ -719,6 +724,27 @@ export def CalendarToggle(year: number = -1, month: number = -1)
   Show(year, month)
   cal_tab_winid = win_getid()
   week_view.CallConnectHook()
+enddef
+
+# Wipe all calendar-related buffers and close the calendar tab if open.
+# Called by :CalendarWipe.
+export def CalendarWipe()
+  if win_id2win(cal_tab_winid) > 0
+    var [tabnr, _] = win_id2tabwin(cal_tab_winid)
+    cal_tab_winid = -1
+    if tabpagenr('$') > 1
+      execute $'tabclose {tabnr}'
+    endif
+  endif
+  for bname in [cal_bufname,
+                week_view.WEEK_BUF_NAME,
+                week_view.WEEK_HDR_BUF_NAME,
+                week_view.APPT_BUF_NAME]
+    var bn = bufnr(bname)
+    if bn > 0
+      execute $'silent! bwipeout! {bn}'
+    endif
+  endfor
 enddef
 
 # Main entrypoint called by :Calendar.
