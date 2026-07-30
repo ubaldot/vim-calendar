@@ -4,6 +4,7 @@ import "./common.vim"
 var WaitForAssert = common.WaitForAssert
 
 packadd CalendarToggle
+import autoload "../lib/calendar_view.vim"
 
 def ResetConfig()
   g:calendar_config = {
@@ -176,6 +177,29 @@ def g:Test_open_diary_auto_create_dirs_month_resolution()
   assert_true(isdirectory(tmp_root))
   assert_true(isdirectory(tmp_root .. '/2026'))
   # month resolution: no per-month subdir; diary file is YYYY/MonthName.md
+
+  :%bw!
+  delete(tmp_root, 'rf')
+enddef
+
+def g:Test_open_diary_auto_create_dirs_day_resolution()
+  ResetConfig()
+  var tmp_root = tempname() .. '_calendar_diary_day'
+  delete(tmp_root, 'rf')
+
+  g:calendar_config.position = 'popup'
+  g:calendar_config.diaries_dict = {
+    My_Diary: {path: tmp_root, resolution: 'day'},
+  }
+  g:calendar_config.active_diary = 'My_Diary'
+  g:calendar_config.auto_create_diary_dirs = true
+
+  CalendarToggle 2026, 7
+  WaitForAssert(() => assert_true(len(popup_list()) > 0))
+
+  var path = calendar_view.DiaryFilePath(2026, 7, 15)
+  assert_match('2026[/\\]July[/\\]15\.md$', path,
+    'day resolution DiaryFilePath must return YYYY/MonthName/DD.md')
 
   :%bw!
   delete(tmp_root, 'rf')

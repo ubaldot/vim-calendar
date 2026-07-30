@@ -22,6 +22,7 @@ var cfg_holidays: dict<any>  = {}
 var cfg_diaries: dict<any>   = {}
 var cfg_active_diary    = ''
 var cfg_diary_path      = '~/my_diary'
+var cfg_diary_resolution = 'month'
 
 # Initialize all view config from a dict (call from InitVariables).
 export def Configure(cfg: dict<any>)
@@ -33,12 +34,14 @@ export def Configure(cfg: dict<any>)
   cfg_diaries           = get(cfg, 'diaries',           {})
   cfg_active_diary      = get(cfg, 'active_diary',      '')
   cfg_diary_path        = get(cfg, 'diary_path',        '~/my_diary')
+  cfg_diary_resolution  = get(cfg, 'diary_resolution',  'month')
 enddef
 
 # Update only active-diary fields (call from ActivateDiary).
-export def SetActiveDiary(name: string, path: string)
-  cfg_active_diary = name
-  cfg_diary_path   = path
+export def SetActiveDiary(name: string, path: string, resolution: string = 'month')
+  cfg_active_diary     = name
+  cfg_diary_path       = path
+  cfg_diary_resolution = resolution
 enddef
 
 export def WeekNumberEnabled(): bool
@@ -136,10 +139,18 @@ def IsHoliday(year: number, month: number, day: number): bool
   return has_key(cfg_holidays, printf('%04d-%02d-%02d', year, month, day))
 enddef
 
-# Build diary file path for current resolution mode.
+# Return the month-level directory for day-resolution diaries: YYYY/MonthName
+export def DiaryMonthDir(year: number, month: number): string
+  return $"{expand(cfg_diary_path)}/{printf('%04d', year)}/{MonthName(month)}"
+enddef
+
 # Build diary file path under cfg_diary_path for the given date.
-# Resolution is always 'month' (one file per month: YYYY/MonthName.md).
-export def DiaryFilePath(year: number, month: number, _day: number): string
+#   month resolution: YYYY/MonthName.md
+#   day   resolution: YYYY/MonthName/DD.md
+export def DiaryFilePath(year: number, month: number, day: number): string
+  if cfg_diary_resolution ==# 'day'
+    return $"{DiaryMonthDir(year, month)}/{printf('%02d', day)}.md"
+  endif
   var year_dir = $"{expand(cfg_diary_path)}/{printf('%04d', year)}"
   return $"{year_dir}/{MonthName(month)}.md"
 enddef

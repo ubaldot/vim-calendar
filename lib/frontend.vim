@@ -17,6 +17,7 @@ var cfg_search_grep = 'internal'
 var cfg_diaries: dict<any> = {My_Diary: {path: '~/my_diary', resolution: 'month'}}
 var cfg_active_diary = 'My_Diary'
 var cfg_diary_path = '~/my_diary'
+var cfg_diary_resolution = 'month'
 var cfg_address_book_path = ''
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
@@ -86,6 +87,7 @@ def InitVariables(): bool
   cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
   cfg_connect = get(active, 'connect', '')
   cfg_address_book_path = get(active, 'address_book', '')
+  cfg_diary_resolution = get(active, 'resolution', 'month')
 
   var c = get(cfg, 'connect', {})
   if !empty(c)
@@ -101,6 +103,7 @@ def InitVariables(): bool
     diaries:           cfg_diaries,
     active_diary:      cfg_active_diary,
     diary_path:        cfg_diary_path,
+    diary_resolution:  cfg_diary_resolution,
   })
 
   week_view.Configure(
@@ -368,8 +371,9 @@ def ActivateDiary(name: string): bool
   cfg_active_diary = name
   var d = cfg_diaries[name]
   cfg_diary_path = has_key(d, 'path') ? d.path : cfg_diary_path
+  cfg_diary_resolution = get(d, 'resolution', 'month')
   cfg_address_book_path = get(d, 'address_book', '')
-  calendar_view.SetActiveDiary(cfg_active_diary, cfg_diary_path)
+  calendar_view.SetActiveDiary(cfg_active_diary, cfg_diary_path, cfg_diary_resolution)
   week_view.SetConnectFunc(get(d, 'connect', ''))   # clears week_cache for new diary
   return true
 enddef
@@ -557,10 +561,15 @@ def OpenDiaryPage(day: number, month: number, year: number, week: number)
   if !EnsureDiaryDir(diary_root)
     return
   endif
-
   var year_dir = $"{diary_root}/{printf('%04d', year)}"
   if !EnsureDiaryDir(year_dir)
     return
+  endif
+  if cfg_diary_resolution ==# 'day'
+    var month_dir = calendar_view.DiaryMonthDir(year, month)
+    if !EnsureDiaryDir(month_dir)
+      return
+    endif
   endif
 
   var file = substitute(calendar_view.DiaryFilePath(year, month, day), ' ', '\\ ', 'g')
@@ -570,7 +579,6 @@ def OpenDiaryPage(day: number, month: number, year: number, week: number)
   endif
   execute $"edit {file}"
   ApplyAddressBook()
-
 enddef
 
 # Close the calendar tab and open the diary entry for the day (or month when
@@ -601,6 +609,12 @@ def ActionOpenDiaryAndClose()
   var year_dir = $"{diary_root}/{printf('%04d', year)}"
   if !EnsureDiaryDir(year_dir)
     return
+  endif
+  if cfg_diary_resolution ==# 'day'
+    var month_dir = calendar_view.DiaryMonthDir(year, month)
+    if !EnsureDiaryDir(month_dir)
+      return
+    endif
   endif
 
   var file = substitute(calendar_view.DiaryFilePath(year, month, day), ' ', '\\ ', 'g')
