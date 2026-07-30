@@ -24,6 +24,7 @@ var cfg_active_diary = 'My_Diary'
 var cfg_diary_path = '~/my_diary'
 var cfg_auto_create_diary_dirs = false
 var cfg_action = 'OpenDiaryPage'
+var cfg_connect = ''
 var popup_id = -1
 var help_popup_id = -1
 var popup_year = 0
@@ -34,7 +35,6 @@ var state_base_year = 0
 var state_base_month = 0
 var state_blocks: list<dict<any>> = []
 var state_diary_rows: dict<string> = {}
-var state_curr_week_num = str2nr(strftime('%V'))
 
 # Normalize window placement to supported values.
 def NormalizePos(v: any): string
@@ -88,7 +88,7 @@ def InitVariables(): bool
   var active = cfg_diaries[cfg_active_diary]
 
   cfg_diary_path = has_key(active, 'path') ? active.path : '~/my_diary'
-  week_view.SetConnectFunc(get(active, 'connect', ''))
+  cfg_connect = get(active, 'connect', '')
 
   var c = get(cfg, 'connect', {})
   if !empty(c)
@@ -455,12 +455,12 @@ enddef
 
 # Update only the CalCurrWeek match in the current window.
 def UpdateCurrWeekHighlight()
-  highlights.UpdateCurrWeek(state_curr_week_num)
+  highlights.UpdateCurrWeek()
 enddef
 
 # Apply match highlights to the current calendar buffer.
 def ApplyHighlights(view: dict<any>)
-  highlights.Apply(view, state_curr_week_num, WeekNumberEnabled())
+  highlights.Apply(view, WeekNumberEnabled())
 enddef
 
 def ApplyPopupHighlights(winid: number, view: dict<any>)
@@ -556,7 +556,7 @@ def PopupCycleDiary(step: number): bool
 
   # Update week view: fetch if new diary has a connect hook, else clear it.
   if bufnr(week_view.WEEK_BUF_NAME) > 0
-    if week_view.HasConnectFunc()
+    if !empty(get(t:, 'cal_connect_func', ''))
       week_view.CallConnectHook()
     else
       var ty = str2nr(strftime('%Y'))
@@ -576,14 +576,12 @@ def PopupOpenSelectedDay(): bool
   var day = popup_day_cells[popup_day_index].day
   var week = backend.WeekdayForDate(popup_year, popup_month, day)
   var action_name = 'OpenDiaryPage'
-  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
+  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists($'*{cfg_action}')
     action_name = cfg_action
   endif
-  call(function(action_name), [day, popup_month, popup_year, week])
+  function(action_name)(day, popup_month, popup_year, week)
   return true
 enddef
-
-# Render calendar view into split window or popup.
 def RenderView(base_year: number, base_month: number)
 
   var view = BuildView(base_year, base_month)
@@ -742,6 +740,17 @@ enddef
 def Action(arg: string = '')
 
   if !empty(arg) && HandleNavigation(arg)
+    # 'Today': also snap the week view to today and reset the week highlight.
+    if arg ==# 'Today' && bufnr(week_view.WEEK_BUF_NAME) > 0
+      var ty = str2nr(strftime('%Y'))
+      var tm = str2nr(strftime('%m'))
+      var td = str2nr(strftime('%d'))
+      week_view.NavigateWeekView(ty, tm, td)
+      t:cal_curr_week_num = str2nr(strftime('%V'))
+      if WeekNumberEnabled()
+        UpdateCurrWeekHighlight()
+      endif
+    endif
     return
   endif
 
@@ -780,7 +789,7 @@ def Action(arg: string = '')
   # When the week view is open, <CR> navigates it — don't open a diary page.
   if bufnr(week_view.WEEK_BUF_NAME) > 0
     week_view.NavigateWeekView(year, month, day)
-    state_curr_week_num = backend.ISOWeekNum(year, month, day)
+    t:cal_curr_week_num = backend.ISOWeekNum(year, month, day)
     if WeekNumberEnabled()
       UpdateCurrWeekHighlight()
     endif
@@ -789,10 +798,10 @@ def Action(arg: string = '')
 
   # No week view (popup mode) — open diary page as usual.
   var action_name = 'OpenDiaryPage'
-  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists('*' .. cfg_action)
+  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists($'*{cfg_action}')
     action_name = cfg_action
   endif
-  call(function(action_name), [day, month, year, week])
+  function(action_name)(day, month, year, week)
 enddef
 
 # Close split window or popup calendar.
@@ -1014,8 +1023,6 @@ export def Show(year: number = -1, month: number = -1): string
     return ''
   endif
 
-  state_curr_week_num = str2nr(strftime('%V'))
-
   var y = year == -1 ? str2nr(strftime('%Y')) : year
   var m = month == -1 ? str2nr(strftime('%m')) : month
 
@@ -1027,6 +1034,9 @@ export def Show(year: number = -1, month: number = -1): string
   # Open a dedicated tab: calendar on one side, week view on the other.
   tabnew
   var tabnew_bufnr = bufnr('%')
+  # Initialize tab-local state now that we're in the calendar tab.
+  t:cal_curr_week_num = str2nr(strftime('%V'))
+  week_view.SetConnectFunc(cfg_connect)
   RenderView(y, m)
   var cal_winid = win_getid()
 

@@ -30,6 +30,7 @@ filetype plugin on
 
 TEST_FILES: list[str] = [
     "test_calendar.vim",
+    "test_week_view.vim",
 ]
 
 # Extra files written *and cleaned up* by this script {filename: content}.

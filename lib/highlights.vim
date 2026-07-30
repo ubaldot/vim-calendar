@@ -2,12 +2,28 @@ vim9script
 
 # Calendar highlight group definitions and match management.
 # All functions operate on the current window (split mode) or a given winid
-# (popup mode). No imports needed — callers pass the few pieces of state
-# required (curr_week_num, week_num_enabled).
+# (popup mode). Shared state is read from t:cal_* (tab-local).
+
+# Highlight today's column in the __WeekHeader__ window.
+# today_week_key: the Monday date string for today's ISO week (caller computes
+# it to avoid importing backend here). Only highlights when today is in the
+# displayed week (t:cal_week_key).
+export def WeekHeader(win_id: number, today_week_key: string)
+  win_execute(win_id, 'clearmatches()')
+  if today_week_key !=# get(t:, 'cal_week_key', '')
+    return
+  endif
+  var today_d = str2nr(strftime('%d'))
+  win_execute(win_id, $"call matchadd('CalWeekToday', ' {today_d},[^│]*')")
+enddef
 
 # Update only the CalCurrWeek match in the current window.
-export def UpdateCurrWeek(curr_week_num: number)
-  if exists('w:cal_curr_week') | silent! matchdelete(w:cal_curr_week) | endif
+export def UpdateCurrWeek()
+  try | matchdelete(get(w:, 'cal_curr_week', -1)) | catch | endtry
+  var curr_week_num = get(t:, 'cal_curr_week_num', 0)
+  if curr_week_num == 0
+    return
+  endif
   var save_pos = getcurpos()
   if search($'^\s*{curr_week_num}\s', 'cw') > 0
     normal! 0w
@@ -19,31 +35,22 @@ export def UpdateCurrWeek(curr_week_num: number)
 enddef
 
 # Apply all calendar match highlights to the current (split) window.
-export def Apply(view: dict<any>, curr_week_num: number, week_num_enabled: bool)
-  if exists('w:cal_today') | silent! matchdelete(w:cal_today) | endif
-  if exists('w:cal_sat') | silent! matchdelete(w:cal_sat) | endif
-  if exists('w:cal_sun') | silent! matchdelete(w:cal_sun) | endif
-  if exists('w:cal_holiday') | silent! matchdelete(w:cal_holiday) | endif
-  if exists('w:cal_week') | silent! matchdelete(w:cal_week) | endif
-  if exists('w:cal_curr_week') | silent! matchdelete(w:cal_curr_week) | endif
-  if exists('w:cal_weekdays') | silent! matchdelete(w:cal_weekdays) | endif
-  if exists('w:cal_help') | silent! matchdelete(w:cal_help) | endif
-  if exists('w:cal_header') | silent! matchdelete(w:cal_header) | endif
-  if exists('w:cal_currlist') | silent! matchdelete(w:cal_currlist) | endif
+export def Apply(view: dict<any>, week_num_enabled: bool)
+  clearmatches()
 
-  if !empty(view.today) | w:cal_today = matchaddpos('CalToday', view.today, 40) | endif
-  if !empty(view.sat) | w:cal_sat = matchaddpos('CalSaturday', view.sat, 30) | endif
-  if !empty(view.sun) | w:cal_sun = matchaddpos('CalSunday', view.sun, 30) | endif
-  if !empty(view.holiday) | w:cal_holiday = matchaddpos('CalHoliday', view.holiday, 32) | endif
-  if !empty(view.week) | w:cal_week = matchaddpos('CalWeeknm', view.week, 35) | endif
+  if !empty(view.today) | matchaddpos('CalToday', view.today, 40) | endif
+  if !empty(view.sat) | matchaddpos('CalSaturday', view.sat, 30) | endif
+  if !empty(view.sun) | matchaddpos('CalSunday', view.sun, 30) | endif
+  if !empty(view.holiday) | matchaddpos('CalHoliday', view.holiday, 32) | endif
+  if !empty(view.week) | matchaddpos('CalWeeknm', view.week, 35) | endif
   if week_num_enabled
-    UpdateCurrWeek(curr_week_num)
+    UpdateCurrWeek()
   endif
 
-  w:cal_help = matchadd('CalHelpHint', '^Hit "?" for help$', 20)
-  w:cal_header = matchadd('CalHeader', '^\s*[A-Za-z]\+\s\+\d\{4}$', 25)
-  w:cal_currlist = matchadd('CalCurrList', '^(\*).*$', 15)
-  w:cal_weekdays = matchadd('CalWeekdays', '^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$', 22)
+  matchadd('CalHelpHint', '^Hit "?" for help$', 20)
+  matchadd('CalHeader', '^\s*[A-Za-z]\+\s\+\d\{4}$', 25)
+  matchadd('CalCurrList', '^(\*).*$', 15)
+  matchadd('CalWeekdays', '^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$', 22)
 enddef
 
 # Apply all calendar match highlights to a popup window.

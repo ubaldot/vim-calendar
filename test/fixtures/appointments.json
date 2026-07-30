@@ -1,0 +1,40 @@
+[
+  {
+    "start": "2026-07-27T09:00:00",
+    "end":   "2026-07-27T10:00:00",
+    "subject":   "Team Meeting",
+    "organizer": "Alice",
+    "location":  "Room A",
+    "body":      "Weekly sync"
+  },
+  {
+    "start": "2026-07-27T09:30:00",
+    "end":   "2026-07-27T10:30:00",
+    "subject":   "Overlapping Review",
+    "organizer": "Bob",
+    "location":  "Room B",
+    "body":      "Code review"
+  },
+  {
+    "start": "2026-07-29T14:00:00",
+    "end":   "2026-07-29T15:00:00",
+    "subject":   "One-on-One",
+    "organizer": "Carol",
+    "location":  "",
+    "body":      ""
+  },
+  {
+    "start":     "2026-07-28T00:00:00",
+    "end":       "2026-07-29T00:00:00",
+    "allday":    true,
+    "subject":   "Sprint Planning",
+    "organizer": "Dave"
+  },
+  {
+    "start":     "2026-07-27T00:00:00",
+    "end":       "2026-07-30T00:00:00",
+    "allday":    true,
+    "subject":   "Company Offsite",
+    "organizer": "HR"
+  }
+]

@@ -1,9 +1,11 @@
 vim9script
 
 import autoload "./backend.vim"
+import autoload "./highlights.vim"
 
 # Week view panel — self-contained module.
-# Owns: WEEK_BUF_NAME, week_cache, connect_func.
+# Owns: WEEK_BUF_NAME, week_cache.
+# Shared state lives in t:cal_* (tab-local, single calendar tab enforced).
 # Date math is delegated to backend.vim.
 
 export const WEEK_BUF_NAME = '__WeekView__'
@@ -13,17 +15,12 @@ const WEEK_DAY_COL  = 16
 const WEEK_DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
 var week_cache: dict<dict<list<any>>> = {}
-var connect_func = ''
 
 # Set the active diary's connect function and clear the week cache.
 # Must be called whenever the active diary changes.
 export def SetConnectFunc(name: string)
-  connect_func = name
+  t:cal_connect_func = name
   week_cache = {}
-enddef
-
-export def HasConnectFunc(): bool
-  return !empty(connect_func)
 enddef
 
 # Return the Monday date string ('YYYY-MM-DD') for the ISO week containing
@@ -55,11 +52,11 @@ def CellText(text: string): string
   var content = strcharlen(text) > max_len
     ? strcharpart(text, 0, max_len - 3) .. '...'
     : text
-  return ' ' .. content
+  return $' {content}'
 enddef
 
 def FormatEventCells(subject: string, organizer: string): list<string>
-  return [CellText(subject), CellText('(' .. organizer .. ')')]
+  return [CellText(subject), CellText($'({organizer})')]
 enddef
 
 def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
@@ -81,12 +78,6 @@ def FindHourEvents(events: dict<any>, date_key: string, hour: number): list<dict
 enddef
 
 # Highlight today's cell in the header window using a simple day pattern.
-def HighlightWeekHeader(win_id: number)
-  win_execute(win_id, 'clearmatches()')
-  var today_day = str2nr(strftime('%d'))
-  win_execute(win_id, $"call matchadd('CalWeekToday', ' {today_day},[^│]*')")
-enddef
-
 # Render banner rows for all-day events above the hour grid.
 # One row per event; each row spans its start→end columns with dashes.
 # Outlook all-day end is exclusive (next-day midnight), so end_date is
@@ -120,12 +111,14 @@ def AllDayRows(events: dict<any>, wdays: list<dict<any>>): list<string>
 
     var left_pad   = repeat(' ', WEEK_TIME_COL + 1 + start_col * (WEEK_DAY_COL + 1))
     var cell_width = (end_col - start_col + 1) * (WEEK_DAY_COL + 1) - 1
-    var label = get(ev, 'subject', '') .. ' (' .. get(ev, 'organizer', '') .. ') '
+    var subj = get(ev, 'subject', '')
+    var org  = get(ev, 'organizer', '')
+    var label = $'{subj} ({org}) '
     var fill_len = cell_width - strcharlen(label)
     var content = fill_len > 0
       ? label .. repeat('-', fill_len)
       : strcharpart(label, 0, cell_width)
-    lines->add(left_pad .. content .. '|')
+    lines->add($'{left_pad}{content}|')
   endfor
   return lines
 enddef
@@ -184,7 +177,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
     return
   endif
 
-  setbufvar(body_buf, 'week_key', WeekCacheKey(year, month, day))
+  t:cal_week_key = WeekCacheKey(year, month, day)
   var wdays    = backend.WeekDays(year, month, day)
   var week_num = backend.ISOWeekNum(year, month, day)
 
@@ -212,7 +205,8 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   var hdr_wins = win_findbuf(hdr_buf)
   if !empty(hdr_wins)
     win_execute(hdr_wins[0], $'resize {len(hdr_lines)}')
-    HighlightWeekHeader(hdr_wins[0])
+    var today_key = WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
+    highlights.WeekHeader(hdr_wins[0], today_key)
   endif
 
   # ── Body (hour grid) ──────────────────────────────────────────────────────
@@ -220,7 +214,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   var hour7_line = 1
   for h in range(0, 23)
     if h == 7
-      hour7_line = len(body_lines) + 1
+      hour7_line = len(body_lines) + 1 + &scrolloff
     endif
     var day_evs: list<list<dict<any>>> = []
     for d in wdays
@@ -270,11 +264,8 @@ export def NavigateWeekView(year: number, month: number, day: number)
   if has_key(week_cache, cache_key)
     RenderWeekView(year, month, day, week_cache[cache_key])
   else
-    # Set b:week_key before the hook fires so LoadAppointments caches correctly.
-    var body_buf = bufnr(WEEK_BUF_NAME)
-    if body_buf > 0
-      setbufvar(body_buf, 'week_key', cache_key)
-    endif
+    # Set t:cal_week_key before the hook fires so LoadAppointments caches correctly.
+    t:cal_week_key = cache_key
     CallConnectHook(year, month, day)
     if !has_key(week_cache, cache_key)
       RenderWeekView(year, month, day, {})
@@ -285,13 +276,13 @@ enddef
 # Call the active diary's connect hook for the given week date.
 # The hook must return the path it wrote to on success, '' on failure.
 export def CallConnectHook(year: number = -1, month: number = -1, day: number = -1)
-  if empty(connect_func) || !exists('*' .. connect_func)
+  if empty(get(t:, 'cal_connect_func', '')) || !exists($'*{t:cal_connect_func}')
     return
   endif
   var fy = year  > 0 ? year  : str2nr(strftime('%Y'))
   var fm = month > 0 ? month : str2nr(strftime('%m'))
   var fd = day   > 0 ? day   : str2nr(strftime('%d'))
-  var path = call(function(connect_func), [fy, fm, fd])
+  var path = function(t:cal_connect_func)(fy, fm, fd)
   if !empty(path)
     LoadAppointments(path)
   endif
@@ -347,8 +338,7 @@ def LoadAppointments(path: string)
 
   events['allday'] = allday
 
-  var body_buf = bufnr(WEEK_BUF_NAME)
-  var stored_key = body_buf > 0 ? getbufvar(body_buf, 'week_key', '') : ''
+  var stored_key = get(t:, 'cal_week_key', '')
   var key = empty(stored_key)
     ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
     : stored_key
@@ -362,11 +352,10 @@ enddef
 # Re-fetch appointments for the currently displayed week.
 # Invalidates the cache entry so fresh data is pulled from the connect hook.
 export def CalendarRefresh()
-  if !HasConnectFunc()
+  if empty(get(t:, 'cal_connect_func', ''))
     return
   endif
-  var body_buf = bufnr(WEEK_BUF_NAME)
-  var stored_key = body_buf > 0 ? getbufvar(body_buf, 'week_key', '') : ''
+  var stored_key = get(t:, 'cal_week_key', '')
   var key = empty(stored_key)
     ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
     : stored_key
