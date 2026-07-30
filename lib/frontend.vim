@@ -567,6 +567,45 @@ def OpenDiaryPage(day: number, month: number, year: number, week: number)
 
 enddef
 
+# Close the calendar tab and open the diary entry for the day (or month when
+# the cursor is not on a specific day number) under the cursor.
+# Bound to <C-CR> / <S-CR> in the left pane.
+def ActionOpenDiaryAndClose()
+  var block = FindBlockAtCursor()
+  if empty(block)
+    return
+  endif
+
+  var month = block.month
+  var year  = block.year
+
+  # Use the day under cursor if it is a valid day number; otherwise fall back
+  # to day 1 (opens the month-level or first-day entry).
+  var day_str = matchstr(expand('<cword>'), '^\d\{1,2}$')
+  var day = !empty(day_str)
+      && col('.') >= block.day_col_start
+      && col('.') <= block.day_col_end
+    ? str2nr(day_str)
+    : 1
+
+  var diary_root = expand(cfg_diary_path)
+  if !EnsureDiaryDir(diary_root)
+    return
+  endif
+  var year_dir = $"{diary_root}/{printf('%04d', year)}"
+  if !EnsureDiaryDir(year_dir)
+    return
+  endif
+
+  var file = substitute(calendar_view.DiaryFilePath(year, month, day), ' ', '\\ ', 'g')
+
+  # Close the calendar (tab or buffers) before opening the file so the edit
+  # lands in the window that becomes current after the tab closes.
+  cal_tab_winid = -1
+  Close()
+  execute $"edit {file}"
+enddef
+
 # Filter for help popup: close with q or <Esc>.
 def HelpPopupFilter(id: number, key: string): bool
   if key ==# 'q' || key ==# "\<Esc>"
@@ -635,7 +674,8 @@ def CalendarBuildKeymap()
   nnoremap <silent> <buffer> <Tab> <ScriptCmd>Action('NextDiary')<CR>
   nnoremap <silent> <buffer> <S-Tab> <ScriptCmd>Action('PrevDiary')<CR>
   nnoremap <silent> <buffer> ? <ScriptCmd>CalendarHelp()<CR>
-  nnoremap <silent> <buffer> W <Cmd>CalendarToggle<CR>
+  nnoremap <silent> <buffer> <C-CR> <ScriptCmd>ActionOpenDiaryAndClose()<CR>
+  nnoremap <silent> <buffer> <S-CR> <ScriptCmd>ActionOpenDiaryAndClose()<CR>
 
 enddef
 

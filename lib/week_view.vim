@@ -607,5 +607,4 @@ enddef
 def WeekViewBuildKeymap()
   nnoremap <silent> <buffer> K  <ScriptCmd>ShowAppointmentDetails()<CR>
   nnoremap <silent> <buffer> <CR> <ScriptCmd>OpenAppointmentBody()<CR>
-  nnoremap <silent> <buffer> W  <Cmd>CalendarToggle<CR>
 enddef
