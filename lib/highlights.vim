@@ -1,8 +1,7 @@
 vim9script
 
 # Calendar highlight group definitions and match management.
-# All functions operate on the current window (split mode) or a given winid
-# (popup mode). Shared state is read from t:cal_* (tab-local).
+# Shared state is read from t:cal_* (tab-local).
 
 # Highlight today's column in the __WeekHeader__ window.
 # today_week_key: the Monday date string for today's ISO week (caller computes
@@ -57,43 +56,6 @@ export def Apply(view: dict<any>, week_num_enabled: bool)
   matchadd('CalWeekdays', '^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$', 22)
 enddef
 
-# Apply all calendar match highlights to a popup window via win_execute.
-# Mirrors Apply() but all match calls are sent as legacy strings because
-# popup windows do not share the Vim9 script context.
-export def ApplyPopup(winid: number, view: dict<any>, week_num_enabled: bool)
-  if winid <= 0
-    return
-  endif
-  if !empty(view.today)
-    win_execute(winid, $"call matchaddpos('CalToday', {string(view.today)}, 40)")
-  endif
-  if !empty(view.sat)
-    win_execute(winid, $"call matchaddpos('CalSaturday', {string(view.sat)}, 30)")
-  endif
-  if !empty(view.sun)
-    win_execute(winid, $"call matchaddpos('CalSunday', {string(view.sun)}, 30)")
-  endif
-  if !empty(view.holiday)
-    win_execute(winid, $"call matchaddpos('CalHoliday', {string(view.holiday)}, 32)")
-  endif
-  if !empty(view.week)
-    win_execute(winid, $"call matchaddpos('CalWeeknm', {string(view.week)}, 35)")
-  endif
-  if week_num_enabled
-    var wn = str2nr(strftime('%V'))
-    win_execute(winid, [
-      $"if search('^\\s*{wn}\\s', 'cw') > 0",
-      "  normal! 0w",
-      $"  call matchaddpos('CalCurrWeek', [[line('.'), col('.'), col('$') - col('.')]], 25)",
-      "endif"
-    ])
-  endif
-  win_execute(winid, 'call matchadd(''CalHelpHint'', ''^Hit "?" for help$'', 20)')
-  win_execute(winid, 'call matchadd(''CalHeader'', ''^\s*[A-Za-z]\+\s\+\d\{4}$'', 25)')
-  win_execute(winid, 'call matchadd(''CalCurrList'', ''^(\*).*$'', 15)')
-  win_execute(winid, 'call matchadd(''CalWeekdays'', ''^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$'', 22)')
-enddef
-
 hi def link CalSaturday LineNr
 hi def link CalSunday Error
 hi def link CalRuler Normal
@@ -104,7 +66,6 @@ hi def link CalHeader WarningMsg
 hi def link CalHoliday Error
 hi def link CalCurrList Error
 hi def link CalHelpHint Question
-hi def link CalPopupSelection Visual
 hi def link CalCurrWeek Visual
 hi def CalWeekToday term=bold cterm=bold gui=bold
 

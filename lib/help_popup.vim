@@ -11,7 +11,7 @@ def Filter(id: number, key: string): bool
   return false
 enddef
 
-export def Show(calendar_is_popup: bool)
+export def Show()
   var lines = [
     'Calendar key bindings',
     '',
@@ -37,10 +37,32 @@ export def Show(calendar_is_popup: bool)
     filter: Filter,
     mapping: 0,
   }
-  if calendar_is_popup
-    extend(options, {line: &lines, col: &columns, pos: 'botright'})
-  endif
   popup_id = popup_create(lines, options)
+enddef
+
+export def ShowWeek()
+  var lines = [
+    'Week view key bindings',
+    '',
+    'K  preview appointment',
+    '<CR>  open appointment details',
+    'n  compose appointment in provider',
+    'e  edit appointment (organizer only)',
+    '<C-Left> / <C-Right>  previous/next week',
+    't  go to current week',
+    '<F5>  refresh appointments',
+    'q or <Esc>  close appointment details',
+  ]
+  if popup_id > 0
+    popup_close(popup_id)
+  endif
+  popup_id = popup_create(lines, {
+    title: ' Week View Help ',
+    borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
+    border: [1, 1, 1, 1],
+    filter: Filter,
+    mapping: 0,
+  })
 enddef
 
 # vim: shiftwidth=2 softtabstop=2 noexpandtab

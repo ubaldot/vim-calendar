@@ -25,7 +25,7 @@ It is a forked and refactored version for Vim 9.0 of vim-calendar originally
 written by Yasuhiro Matsumoto <mattn.jp@gmail.com>
 
 Key features:
-- Split-window or popup calendar display
+- Split-window calendar display
 - ISO (EU), US, and work-week (Mon–Fri) layouts
 - Optional week-number column
 - Multiple configurable diary books (per-diary path, resolution, connect hook)
@@ -72,7 +72,7 @@ vim-calendar makes the following commands available:
 ==============================================================================
 MAPPINGS                                        *calendar-mappings*
 
-Left pane (split mode) ~
+Calendar pane ~
 
     h / j / k / l      Move cursor
     |<C-Up>|              Previous month
@@ -81,8 +81,7 @@ Left pane (split mode) ~
     |<C-Right>|           Next year
     t                   Go to today
     |<Tab>| / |<S-Tab>|   Next / previous diary
-    |<CR>|                Navigate week view to day under cursor; or open diary
-                        page (popup mode / no week view)
+    |<CR>|                Navigate week view to day under cursor
     |<C-CR>| / |<S-CR>|   Close the calendar tab and open the diary entry for
                         the day (or month) under the cursor directly
     q                   Close
@@ -97,13 +96,13 @@ Week view (right pane) ~
     |<CR>|                Open the full appointment body in a horizontal split
                         below the week view.  The split buffer shows the
                         complete body including any boilerplate.
+    n                   Compose a one-hour appointment at the date and hour
+                        under the cursor in the configured provider.
+    e                   Edit the appointment under the cursor. Providers may
+                        restrict editing to the organizer.
+    ?                   Show week-view key bindings
     q / |<Esc>|           Close the appointment body split
 
-Popup mode filter ~
-
-    Any key             Close the popup
-
-==============================================================================
 CONFIGURATION                                        *calendar-configuration*
 
                                                 *g:calendar_config*
@@ -116,7 +115,6 @@ All options live in a single dict: >
       number_of_months:      3,
       holidays:              {'2025-12-25': 'Christmas'},
       search_grep:           'internal',
-      action:                'OpenDiaryPage',
       auto_create_diary_dirs: false,
       week_display_type:     'eu',
       week_cell_width:       16,
@@ -125,6 +123,8 @@ All options live in a single dict: >
           path:         '~/my_diary',
           resolution:   'day',
           connect:      'g:MyCalendarFetch',
+          compose:      'g:MyCalendarCompose',
+          edit:         'g:MyCalendarEdit',
           address_book: '/tmp/address_book.json',
         },
       },
@@ -135,7 +135,7 @@ All options live in a single dict: >
 Top-level keys ~
 
                  position       Calendar window position.
-                                Allowed values: 'left', 'right', 'popup'
+                                Allowed values: 'left', 'right'
                                 Default: 'left'
 
                  cal_type       Calendar column layout:
@@ -160,17 +160,6 @@ Top-level keys ~
                                   'external' — uses |:grep|
                                 Default: 'internal'
 
-                      action    Function called when |<CR>| is pressed on a
-                                day cell (popup mode / no week view).
-                                Must match the signature: >
-                                    def MyFunc(
-                                      day: number,
-                                      month: number,
-                                      year: number,
-                                      week: number
-                                    )
-<                               Default: 'OpenDiaryPage' (built-in)
-
       auto_create_diary_dirs    When |true|, missing diary directories are
                                 created automatically via |mkdir()|.
                                 When |false|, the user is asked to create
@@ -192,6 +181,8 @@ Top-level keys ~
                                       path:         string,   " required
                                       resolution:   string,   " 'day'|'month'
                                       connect:      string,   " optional
+                                      compose:      string,   " optional
+                                      edit:         string,   " optional
                                       address_book: string,   " optional
                                     }
 <
@@ -206,6 +197,14 @@ Top-level keys ~
                                 connect     Name of a global function that
                                             fetches calendar appointments.
                                             See |calendar-week-view|.
+
+                                compose     Name of a global function accepting
+                                            start and end strings. Used by `n`
+                                            to open the provider's editor.
+
+                                edit        Name of a global function accepting
+                                            an appointment `entryid`. Used by
+                                            `e` in the week view.
 
                                 address_book
                                             Path to a JSON address-book file

@@ -5,7 +5,8 @@
     "subject":   "Team Meeting",
     "organizer": "Alice",
     "location":  "Room A",
-    "body":      "Weekly sync"
+    "body":      "Weekly sync",
+    "entryid":   "ENTRY-1"
   },
   {
     "start": "2026-07-27T09:30:00",

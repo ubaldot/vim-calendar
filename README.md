@@ -6,11 +6,12 @@ A Vim 9.0 ported and refactored version of [mattn/calendar-vim][1].
 
 ## What it does
 
-- Split-window or popup calendar (EU, US, or work-week layout)
+- Split-window calendar (EU, US, or work-week layout)
 - ISO week-number column (optional)
 - Multiple diary books — per-diary path, resolution, and Outlook connect hook
 - Diary pages opened from calendar days (`<CR>` navigates, `<C-CR>` opens and closes)
 - Week view panel with appointment grid (requires a `connect` hook)
+- Native provider appointment composition and editing from the week grid
 - Address-book omni-completion in diary files (`<C-X><C-O>`)
 - Configurable holidays
 
@@ -41,7 +42,7 @@ Press `?` inside the calendar for a full key-binding reference.
 
 ```vim
 g:calendar_config = {
-  position:         'left',   # 'left' | 'right' | 'popup'
+  position:         'left',   # 'left' | 'right'
   cal_type:         'eu',     # 'eu' | 'us' | 'work'
   show_week_number: false,
   number_of_months: 3,
@@ -81,6 +82,8 @@ g:calendar_config = {
       path:    '~/diary/outlook',
       resolution: 'day',
       connect: 'g:OutlookCalendarFetch',
+      compose: 'g:OutlookCalendarCompose',
+      edit:    'g:OutlookCalendarEdit',
       address_book: $'{$TEMP}\outlook_address_book.json',
     },
   },
@@ -124,7 +127,13 @@ All-day `end` is exclusive (Outlook convention: a Mon–Wed event ends on Thu mi
 |---|---|
 | `K` | Popup preview (subject, time, organizer, location, body excerpt — Teams/Zoom links stripped) |
 | `<CR>` | Open full appointment body in a split below |
+| `n` | Open a native provider event at the selected date/hour |
+| `e` | Edit the appointment under the cursor (organizer only) |
+| `?` | Show week-view key bindings |
 | `q` / `<Esc>` | Close the appointment split |
+
+The `compose` hook receives start and end strings in `YYYY-MM-DD HH:MM`
+format. The `edit` hook receives the provider-specific `entryid`.
 
 ## Address book completion
 
@@ -165,7 +174,7 @@ $book = $contacts | ForEach-Object {
 - `calendar_view.vim` and `week_view.vim` render calendar and appointment views.
 - `config.vim`, `diary.vim`, and `diary_search.vim` own configuration and diary operations.
 - `appointments.vim` parses and caches appointment data.
-- `popup_selection.vim`, `help_popup.vim`, and `highlights.vim` contain focused UI behavior.
+- `help_popup.vim` and `highlights.vim` contain focused UI behavior.
 
 ## License
 

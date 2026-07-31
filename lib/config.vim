@@ -42,7 +42,7 @@ export def Load(): dict<any>
   return {
     ok: true,
     position: Choice(get(raw, 'position', 'left'),
-      ['left', 'right', 'popup'], 'left'),
+      ['left', 'right'], 'left'),
     cal_type: Choice(get(raw, 'cal_type', 'eu'),
       ['eu', 'us', 'work'], 'eu'),
     show_week_number: !!get(raw, 'show_week_number', false),
@@ -51,7 +51,6 @@ export def Load(): dict<any>
       ? get(raw, 'holidays', {})
       : {},
     search_grep: search_engine,
-    action: get(raw, 'action', 'OpenDiaryPage'),
     auto_create_diary_dirs: !!get(raw, 'auto_create_diary_dirs', false),
     diaries: diaries,
     active_diary: active_diary,
@@ -59,6 +58,8 @@ export def Load(): dict<any>
     diary_resolution: get(active, 'resolution', 'month'),
     address_book_path: get(active, 'address_book', ''),
     connect: get(active, 'connect', ''),
+    compose: get(active, 'compose', ''),
+    edit: get(active, 'edit', ''),
     week_display_type: Choice(get(raw, 'week_display_type', 'eu'),
       ['eu', 'us', 'work'], 'eu'),
     week_cell_width: max([8, get(raw, 'week_cell_width', 16)]),

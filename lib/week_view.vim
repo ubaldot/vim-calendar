@@ -1,6 +1,7 @@
 vim9script
 
 import autoload "./appointments.vim"
+import autoload "./help_popup.vim"
 import autoload "./backend.vim"
 import autoload "./highlights.vim"
 import autoload "./reminder.vim"
@@ -17,11 +18,15 @@ const WEEK_DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
 
 var week_day_col          = 16   # cell width; set via Configure()
 var cfg_week_display_type = 'eu' # 'eu' | 'us' | 'work'; set via Configure()
+var compose_func = ''
+var edit_func = ''
 
 # Maps body-buffer line number (as string) → 7-element list of appointment
 # dicts, one per day column.  Empty dict means no appointment in that cell.
 # Rebuilt on every RenderWeekView call.
 var appt_line_map: dict<list<dict<any>>> = {}
+var slot_line_hour: dict<number> = {}
+var displayed_dates: list<string> = []
 
 # Set the active diary's connect function and clear the week cache.
 # Must be called whenever the active diary changes.
@@ -29,6 +34,11 @@ export def SetConnectFunc(name: string)
   t:cal_connect_func = name
   appointments.Clear()
   appt_line_map = {}
+enddef
+
+export def SetActionFuncs(compose_name: string, edit_name: string)
+  compose_func = compose_name
+  edit_func = edit_name
 enddef
 
 # Configure display type and cell width.  Called from frontend.InitVariables.
@@ -188,7 +198,12 @@ export def OpenWeekViewWindow(tabnew_bufnr: number): bool
   win_gotoid(win_getid(winnr))
 
   # Top window — header (no statusline; fixed height)
-  execute $'file {WEEK_HDR_BUF_NAME}'
+  var header_buf = bufnr(WEEK_HDR_BUF_NAME)
+  if header_buf > 0
+    execute $'buffer {header_buf}'
+  else
+    execute $'file {WEEK_HDR_BUF_NAME}'
+  endif
   setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified nomodifiable
   setlocal textwidth=0 colorcolumn=0 fdc=0 nonu winfixheight
   if has('+relativenumber') || exists('+relativenumber')
@@ -203,9 +218,14 @@ export def OpenWeekViewWindow(tabnew_bufnr: number): bool
   nnoremap <silent> <buffer> <F5> <Cmd>CalendarRefresh<CR>
 
   # Bottom window — body (scrollable; week title shown in statusline)
-  belowright split
-  enew
-  execute $'file {WEEK_BUF_NAME}'
+  var body_buf = bufnr(WEEK_BUF_NAME)
+  if body_buf > 0
+    execute $'belowright sbuffer {body_buf}'
+  else
+    belowright split
+    enew
+    execute $'file {WEEK_BUF_NAME}'
+  endif
   setlocal buftype=nofile bufhidden=delete noswapfile nowrap nobuflisted nomodified nomodifiable
   setlocal textwidth=0 colorcolumn=0 fdc=0 nonu
   if has('+relativenumber') || exists('+relativenumber')
@@ -272,6 +292,9 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   # ── Body (hour grid) ──────────────────────────────────────────────────────
   var body_lines: list<string> = []
   appt_line_map = {}
+  slot_line_hour = {}
+  displayed_dates = display_wdays->mapnew((_, d) =>
+    printf('%04d-%02d-%02d', d.year, d.month, d.day))
   var hour7_line = 1
   for h in range(0, 23)
     if h == 7
@@ -305,6 +328,8 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
       body_lines->add(WeekDataRow(k == 0 ? printf('%3d', h) : '', row1))
       var org_lnum  = len(body_lines) + 1
       body_lines->add(WeekDataRow('', row2))
+      slot_line_hour[string(subj_lnum)] = h
+      slot_line_hour[string(org_lnum)] = h
       # Both subject and organizer lines resolve to the same appointment row.
       if !empty(filter(copy(appt_row), (_, v) => !empty(v)))
         appt_line_map[string(subj_lnum)] = appt_row
@@ -434,6 +459,68 @@ export def GetAppointmentAtCursor(): dict<any>
     return {}
   endif
   return row[col_idx]
+enddef
+
+export def GetSlotAtCursor(): dict<any>
+  var key = string(line('.'))
+  if !has_key(slot_line_hour, key) || col('.') <= WEEK_TIME_COL + 1
+    return {}
+  endif
+  var col_idx = (col('.') - WEEK_TIME_COL - 2) / (week_day_col + 1)
+  if col_idx < 0 || col_idx >= len(displayed_dates)
+    return {}
+  endif
+  return {date: displayed_dates[col_idx], hour: slot_line_hour[key]}
+enddef
+
+def SlotEnd(date_key: string, hour: number): list<any>
+  if hour < 23
+    return [date_key, hour + 1]
+  endif
+  var parts = split(date_key, '-')
+  var next = backend.JDNToDate(backend.DateToJDN(
+    str2nr(parts[0]), str2nr(parts[1]), str2nr(parts[2])) + 1)
+  return [printf('%04d-%02d-%02d', next.year, next.month, next.day), 0]
+enddef
+
+def ComposeAppointment()
+  var slot = GetSlotAtCursor()
+  if empty(slot)
+    echo '[Calendar] Place the cursor inside a day/hour cell.'
+    return
+  endif
+  if empty(compose_func) || !exists($'*{compose_func}')
+    echoerr '[Calendar] No appointment compose hook is configured.'
+    return
+  endif
+  var end_slot = SlotEnd(slot.date, slot.hour)
+  var start = $'{slot.date} {printf("%02d:00", slot.hour)}'
+  var end = $'{end_slot[0]} {printf("%02d:00", end_slot[1])}'
+  var result = function(compose_func)(start, end)
+  if type(result) == v:t_bool && !result
+    echoerr '[Calendar] Could not open the appointment editor.'
+  endif
+enddef
+
+def EditAppointment()
+  var appointment = GetAppointmentAtCursor()
+  if empty(appointment)
+    echo '[Calendar] Place the cursor on an appointment.'
+    return
+  endif
+  var entryid = get(appointment, 'entryid', '')
+  if empty(entryid)
+    echoerr '[Calendar] This appointment has no provider identifier.'
+    return
+  endif
+  if empty(edit_func) || !exists($'*{edit_func}')
+    echoerr '[Calendar] No appointment edit hook is configured.'
+    return
+  endif
+  var result = function(edit_func)(entryid)
+  if type(result) == v:t_bool && !result
+    echoerr '[Calendar] Could not open this appointment for editing.'
+  endif
 enddef
 
 # ─── Week view keymaps and popups ────────────────────────────────────────────
@@ -588,8 +675,11 @@ enddef
 def WeekViewBuildKeymap()
   nnoremap <silent> <buffer> K         <ScriptCmd>ShowAppointmentDetails()<CR>
   nnoremap <silent> <buffer> <CR>      <ScriptCmd>OpenAppointmentBody()<CR>
+  nnoremap <silent> <buffer> n         <ScriptCmd>ComposeAppointment()<CR>
+  nnoremap <silent> <buffer> e         <ScriptCmd>EditAppointment()<CR>
   nnoremap <silent> <buffer> <C-Right> <Cmd>CalendarWeekNav next<CR>
   nnoremap <silent> <buffer> <C-Left>  <Cmd>CalendarWeekNav prev<CR>
   nnoremap <silent> <buffer> t         <Cmd>CalendarWeekNav today<CR>
   nnoremap <silent> <buffer> <F5>      <Cmd>CalendarRefresh<CR>
+  nnoremap <silent> <buffer> ?         <ScriptCmd>help_popup.ShowWeek()<CR>
 enddef

@@ -59,6 +59,8 @@ def g:Test_week_view_opens_three_windows()
     '__WeekView__ buffer must exist')
   assert_true(bufnr(week_view.WEEK_HDR_BUF_NAME) > 0,
     '__WeekHeader__ buffer must exist')
+  assert_equal(week_view.WEEK_BUF_NAME, bufname('%'),
+    'Opening the calendar must focus the week-view body')
 enddef
 
 def g:Test_week_view_t_variables_initialized()
@@ -214,6 +216,75 @@ def g:Test_get_appointment_at_cursor()
   cursor(28, 3)
   assert_equal({}, week_view.GetAppointmentAtCursor(),
     'Cursor on time column should return {}')
+enddef
+
+def g:Test_get_creation_slot_at_cursor()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  week_view.NavigateWeekView(2026, 7, 27)
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  # Empty hour 8 uses lines 25-26; Monday is the first day cell.
+  cursor(25, 15)
+  assert_equal({date: '2026-07-27', hour: 8},
+    week_view.GetSlotAtCursor())
+
+  # Tuesday is the second day cell.
+  cursor(25, 31)
+  assert_equal({date: '2026-07-28', hour: 8},
+    week_view.GetSlotAtCursor())
+
+  cursor(25, 3)
+  assert_equal({}, week_view.GetSlotAtCursor(),
+    'The time-label column is not an appointment slot')
+enddef
+
+def g:Test_native_appointment_hooks()
+  def g:TestComposeAppointment(start: string, end: string): bool
+    g:compose_appointment_args = [start, end]
+    return true
+  enddef
+  def g:TestEditAppointment(entryid: string): bool
+    g:edit_appointment_entryid = entryid
+    return true
+  enddef
+
+  ResetConfig()
+  g:calendar_config.diaries_dict.TestDiary.compose = 'g:TestComposeAppointment'
+  g:calendar_config.diaries_dict.TestDiary.edit = 'g:TestEditAppointment'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  week_view.NavigateWeekView(2026, 7, 27)
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  cursor(25, 15)
+  execute 'normal n'
+  assert_equal(
+    ['2026-07-27 08:00', '2026-07-27 09:00'],
+    g:compose_appointment_args)
+
+  t:cal_week_key = '2026-07-27'
+  week_view.CallConnectHook(2026, 7, 27)
+  cursor(28, 15)
+  execute 'normal e'
+  assert_equal('ENTRY-1', g:edit_appointment_entryid)
+
+  unlet g:compose_appointment_args
+  unlet g:edit_appointment_entryid
+enddef
+
+def g:Test_week_view_help_mapping()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  execute 'normal ?'
+  WaitForAssert(() => assert_equal(1, len(popup_list())))
+  assert_match('Week view key bindings',
+    join(getbufline(winbufnr(popup_list()[0]), 1, '$'), "\n"))
+  popup_close(popup_list()[0])
 enddef
 
 # ── Configure / display-type / cell-width tests ──────────────────────────────

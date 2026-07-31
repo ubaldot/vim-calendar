@@ -17,7 +17,6 @@ const weekdays: dict<list<string>> = {
 var cfg_cal_type        = 'eu'
 var cfg_show_week_number = false
 var cfg_number_of_months = 3
-var cfg_position        = 'left'
 var cfg_holidays: dict<any>  = {}
 var cfg_diaries: dict<any>   = {}
 var cfg_active_diary    = ''
@@ -29,7 +28,6 @@ export def Configure(cfg: dict<any>)
   cfg_cal_type          = get(cfg, 'cal_type',          'eu')
   cfg_show_week_number  = get(cfg, 'show_week_number',  false)
   cfg_number_of_months  = get(cfg, 'number_of_months',  3)
-  cfg_position          = get(cfg, 'position',          'left')
   cfg_holidays          = get(cfg, 'holidays',          {})
   cfg_diaries           = get(cfg, 'diaries',           {})
   cfg_active_diary      = get(cfg, 'active_diary',      '')
@@ -156,8 +154,8 @@ export def DiaryFilePath(year: number, month: number, day: number): string
 enddef
 
 # Build one month text block and local highlight positions.
-# Returns a dict with rendered lines and matchpos lists for today/sat/sun/
-# holiday/week, plus a cell list used by the popup selection cursor.
+# Returns rendered lines and match positions for today, weekends, holidays,
+# and week numbers.
 def BuildMonthLines(year: number, month: number): dict<any>
   var weeks = MonthWeeks(year, month)
   var labels = WeekLabels()
@@ -168,7 +166,6 @@ def BuildMonthLines(year: number, month: number): dict<any>
   var sun_positions: list<list<number>> = []
   var holiday_positions: list<list<number>> = []
   var week_positions: list<list<number>> = []
-  var day_cells: list<dict<any>> = []
   var header = $"{MonthName(month)} {year}"
   var day_col_start = WeekNumberEnabled() ? 4 : 2
   var body_width = day_cols * 3 + (WeekNumberEnabled() ? 4 : 1)
@@ -198,13 +195,6 @@ def BuildMonthLines(year: number, month: number): dict<any>
         continue
       endif
       var start_col = day_col_start + col_idx * 3
-      day_cells->add({
-        day: d,
-        row: row_idx,
-        col: col_idx,
-        line: lnum,
-        colpos: start_col + 1,
-      })
       if cfg_cal_type ==# 'eu' && col_idx == 5
         sat_positions->add([lnum, start_col + 1, 2])
       elseif cfg_cal_type ==# 'eu' && col_idx == 6
@@ -236,7 +226,6 @@ def BuildMonthLines(year: number, month: number): dict<any>
     sun: sun_positions,
     holiday: holiday_positions,
     week: week_positions,
-    cells: day_cells,
     day_col_start: day_col_start,
     day_col_end: day_col_start + day_cols * 3 - 1,
   }
@@ -257,7 +246,6 @@ def BuildVerticalComposite(months: list<dict<any>>): dict<any>
   var sun_all: list<list<number>> = []
   var holiday_all: list<list<number>> = []
   var week_all: list<list<number>> = []
-  var cells_all: list<dict<any>> = []
   var line_cursor = 1
 
   for m in months
@@ -281,21 +269,11 @@ def BuildVerticalComposite(months: list<dict<any>>): dict<any>
     extend(sun_all, ShiftPositions(m.sun, start_line - 1, 0))
     extend(holiday_all, ShiftPositions(m.holiday, start_line - 1, 0))
     extend(week_all, ShiftPositions(m.week, start_line - 1, 0))
-    for c in m.cells
-      cells_all->add({
-        day: c.day,
-        row: c.row,
-        col: c.col,
-        line: c.line + start_line - 1,
-        colpos: c.colpos,
-      })
-    endfor
-
     out_lines->add('')
     line_cursor += 1
   endfor
 
-  return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, holiday: holiday_all, week: week_all, cells: cells_all}
+  return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, holiday: holiday_all, week: week_all}
 enddef
 
 # Append a diary-selector section to lines when multiple diaries are configured.
@@ -323,8 +301,7 @@ enddef
 export def BuildView(base_year: number, base_month: number): dict<any>
   var months: list<dict<any>> = []
 
-  var n_months = cfg_position ==# 'popup' ? 1 : cfg_number_of_months
-
+  var n_months = cfg_number_of_months
   var start_offset = n_months == 1 ? 0 : -((n_months - 1) / 2)
 
   for idx in range(0, n_months - 1)
@@ -359,14 +336,6 @@ export def BuildView(base_year: number, base_month: number): dict<any>
   composed.sun = ShiftPositions(composed.sun, 2, 0)
   composed.holiday = ShiftPositions(composed.holiday, 2, 0)
   composed.week = ShiftPositions(composed.week, 2, 0)
-  composed.cells = composed.cells->mapnew((_, c) => ({
-    day: c.day,
-    row: c.row,
-    col: c.col,
-    line: c.line + 2,
-    colpos: c.colpos,
-  }))
-
   var diary_rows = AppendDiarySection(composed.lines)
 
   return {
@@ -378,7 +347,6 @@ export def BuildView(base_year: number, base_month: number): dict<any>
     sun: composed.sun,
     holiday: composed.holiday,
     week: composed.week,
-    cells: composed.cells,
   }
 enddef
 

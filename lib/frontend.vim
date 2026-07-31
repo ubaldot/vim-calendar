@@ -7,7 +7,6 @@ import autoload "./diary.vim"
 import autoload "./diary_search.vim"
 import autoload "./help_popup.vim"
 import autoload "./highlights.vim"
-import autoload "./popup_selection.vim"
 import autoload "./reminder.vim"
 import autoload "./week_view.vim"
 
@@ -22,10 +21,6 @@ var cfg_diary_path = '~/my_diary'
 var cfg_diary_resolution = 'month'
 var cfg_address_book_path = ''
 var cfg_auto_create_diary_dirs = false
-var cfg_action = 'OpenDiaryPage'
-var popup_id = -1
-var popup_year = 0
-var popup_month = 0
 var state_base_year = 0
 var state_base_month = 0
 var state_blocks: list<dict<any>> = []
@@ -41,7 +36,6 @@ def InitVariables(): bool
   cfg_position = cfg.position
   cfg_cal_type = cfg.cal_type
   cfg_search_grep = cfg.search_grep
-  cfg_action = cfg.action
   cfg_auto_create_diary_dirs = cfg.auto_create_diary_dirs
   cfg_diaries = cfg.diaries
   cfg_active_diary = cfg.active_diary
@@ -62,11 +56,11 @@ def InitVariables(): bool
   })
   diary.Configure(cfg_diary_path, cfg_diary_resolution,
     cfg_address_book_path, cfg_auto_create_diary_dirs)
-
   week_view.Configure(
     cfg.week_display_type,
     cfg.week_cell_width
   )
+  week_view.SetActionFuncs(cfg.compose, cfg.edit)
   reminder.SetSoundEnabled(cfg.reminder_sound)
 
   return true
@@ -83,12 +77,19 @@ def OpenCalendarWindow(): number
     return win_getid()
   endif
 
+  if bw > 0
+    if cfg_position ==# 'left'
+      execute $'topleft vertical sbuffer {bw}'
+    else
+      execute $'botright vertical sbuffer {bw}'
+    endif
+    return win_getid()
+  endif
+
   if cfg_position ==# 'left'
     topleft vnew
-  elseif cfg_position ==# 'right'
-    botright vnew
   else
-    topleft vnew
+    botright vnew
   endif
 
   execute $"file {cal_bufname}"
@@ -114,13 +115,9 @@ def ApplyHighlights(view: dict<any>)
   highlights.Apply(view, calendar_view.WeekNumberEnabled())
 enddef
 
-def ApplyPopupHighlights(winid: number, view: dict<any>)
-  highlights.ApplyPopup(winid, view, calendar_view.WeekNumberEnabled())
-enddef
-
 # Cycle through configured diaries by step (+1 / -1), activate the next one,
 # re-render, and update the week view if it is open.
-def PopupCycleDiary(step: number): bool
+def CycleDiary(step: number): bool
   if len(cfg_diaries) <= 1
     return false
   endif
@@ -133,11 +130,7 @@ def PopupCycleDiary(step: number): bool
   if !ActivateDiary(names[idx])
     return false
   endif
-  if cfg_position ==# 'popup'
-    RenderView(popup_year, popup_month)
-  else
-    RenderView(state_base_year, state_base_month)
-  endif
+  RenderView(state_base_year, state_base_month)
 
   # Update week view: fetch if new diary has a connect hook, else clear it.
   if bufnr(week_view.WEEK_BUF_NAME) > 0
@@ -154,55 +147,12 @@ def PopupCycleDiary(step: number): bool
   return true
 enddef
 
-# Open the diary page for the currently selected popup day via cfg_action.
-def PopupOpenSelectedDay(): bool
-  var day = popup_selection.SelectedDay()
-  if day < 1
-    return false
-  endif
-  var week = backend.WeekdayForDate(popup_year, popup_month, day)
-  var action_name = 'OpenDiaryPage'
-  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists($'*{cfg_action}')
-    action_name = cfg_action
-  endif
-  function(action_name)(day, popup_month, popup_year, week)
-  return true
-enddef
 # Build and display the view for (base_year, base_month).
-# In popup mode: (re-)creates the popup window.
-# In split mode: writes to the __Calendar__ buffer, resizes the window,
-# sets keymaps and highlights, and positions the cursor on today.
+# Writes to the __Calendar__ buffer, resizes the window, sets keymaps and
+# highlights, and positions the cursor on today.
 def RenderView(base_year: number, base_month: number)
 
   var view = calendar_view.BuildView(base_year, base_month)
-
-  if cfg_position ==# 'popup'
-    if popup_id > 0
-      popup_close(popup_id)
-    endif
-
-    popup_year = base_year
-    popup_month = base_month
-
-    popup_id = popup_create(view.lines, {
-      title: ' Calendar ',
-      pos: 'center',
-      borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
-      border: [1, 1, 1, 1],
-      filter: PopupFilter,
-      mapping: 0,
-      drag: 0,
-      scrollbar: 0,
-    })
-    state_base_year = base_year
-    state_base_month = base_month
-    state_blocks = view.blocks
-    state_diary_rows = view.diary_rows
-    ApplyPopupHighlights(popup_id, view)
-    popup_selection.Initialize(popup_id, get(view, 'cells', []),
-      popup_year, popup_month)
-    return
-  endif
 
   silent! doautocmd User CalendarBeforeShow
   var winid = OpenCalendarWindow()
@@ -214,12 +164,7 @@ def RenderView(base_year: number, base_month: number)
   setlocal nomodifiable
 
   var width = max(view.lines->mapnew((_, s) => len(s))) + 2
-  var height = len(view.lines) + 1
-  if cfg_position ==# 'left' || cfg_position ==# 'right'
-    execute $"vertical resize {min([max([20, width]), &columns - 5])}"
-  else
-    execute $"resize {min([max([8, height]), &lines - 3])}"
-  endif
+  execute $"vertical resize {min([max([20, width]), &columns - 5])}"
 
   state_base_year = base_year
   state_base_month = base_month
@@ -264,6 +209,7 @@ def ActivateDiary(name: string): bool
   diary.Configure(cfg_diary_path, cfg_diary_resolution,
     cfg_address_book_path, cfg_auto_create_diary_dirs)
   week_view.SetConnectFunc(get(d, 'connect', ''))
+  week_view.SetActionFuncs(get(d, 'compose', ''), get(d, 'edit', ''))
   return true
 enddef
 
@@ -318,10 +264,10 @@ def HandleNavigation(arg: string): bool
     y = str2nr(strftime('%Y'))
     m = str2nr(strftime('%m'))
   elseif arg ==# 'NextDiary'
-    PopupCycleDiary(1)
+    CycleDiary(1)
     return true
   elseif arg ==# 'PrevDiary'
-    PopupCycleDiary(-1)
+    CycleDiary(-1)
     return true
   else
     return false
@@ -338,7 +284,7 @@ enddef
 # Central dispatcher for all key-mapped actions.
 # With arg: delegates to HandleNavigation (month/year jumps, today, diary cycle).
 # Without arg (<CR>): switches diary if on the selector section, otherwise
-# navigates the week view (split) or opens the diary page (popup).
+# navigates the week view.
 def Action(arg: string = '')
 
   if !empty(arg) && HandleNavigation(arg)
@@ -373,8 +319,6 @@ def Action(arg: string = '')
     return
   endif
 
-  # Otherwise call cfg_action, but first extract [day, month, year, week]
-  # arguments
   var day = str2nr(day_string)
 
   var block = FindBlockAtCursor()
@@ -386,44 +330,34 @@ def Action(arg: string = '')
 
   var month = block.month
   var year = block.year
-  var week = backend.WeekdayForDate(year, month, day)
-
-  # When the week view is open, <CR> navigates it — don't open a diary page.
-  if bufnr(week_view.WEEK_BUF_NAME) > 0
-    week_view.NavigateWeekView(year, month, day)
-    t:cal_curr_week_num = backend.ISOWeekNum(year, month, day)
-    if calendar_view.WeekNumberEnabled()
-      UpdateCurrWeekHighlight()
-    endif
+  if bufnr(week_view.WEEK_BUF_NAME) <= 0
     return
   endif
 
-  # No week view (popup mode) — open diary page as usual.
-  var action_name = 'OpenDiaryPage'
-  if type(cfg_action) == v:t_string && !empty(cfg_action) && exists($'*{cfg_action}')
-    action_name = cfg_action
+  week_view.NavigateWeekView(year, month, day)
+  t:cal_curr_week_num = backend.ISOWeekNum(year, month, day)
+  if calendar_view.WeekNumberEnabled()
+    UpdateCurrWeekHighlight()
   endif
-  function(action_name)(day, month, year, week)
 enddef
 
-# Close the popup or, in split mode, close the calendar tab (or wipe buffers
-# when it is the only tab).
+# Close the calendar tab, or wipe buffers when it is the only tab.
 def Close()
-  if popup_id > 0
-    popup_close(popup_id)
-    popup_id = -1
-    popup_selection.Reset()
+  if tabpagenr('$') > 1
+    tabclose!
   else
-    if tabpagenr('$') > 1
-      tabclose!
-    else
-      for bname in [cal_bufname, week_view.WEEK_HDR_BUF_NAME, week_view.WEEK_BUF_NAME]
-        var bn = bufnr(bname)
-        if bn > 0
-          execute $'bwipeout! {bn}'
+    for bname in [cal_bufname, week_view.WEEK_HDR_BUF_NAME,
+                  week_view.WEEK_BUF_NAME]
+      var bn = bufnr(bname)
+      if bn > 0
+        if exists('+winfixbuf')
+          for winid in win_findbuf(bn)
+            win_execute(winid, 'setlocal nowinfixbuf')
+          endfor
         endif
-      endfor
-    endif
+        execute $'bwipeout! {bn}'
+      endif
+    endfor
   endif
 enddef
 
@@ -471,6 +405,9 @@ def ActionOpenDiaryAndClose()
   # lands in the window that becomes current after the tab closes.
   cal_tab_winid = -1
   Close()
+  if exists('+winfixbuf') && &l:winfixbuf
+    setlocal nowinfixbuf
+  endif
   execute $"edit {file}"
   diary.ApplyAddressBook()
 enddef
@@ -492,68 +429,11 @@ def CalendarBuildKeymap()
   nnoremap <silent> <buffer> t <ScriptCmd>Action('Today')<CR>
   nnoremap <silent> <buffer> <Tab> <ScriptCmd>Action('NextDiary')<CR>
   nnoremap <silent> <buffer> <S-Tab> <ScriptCmd>Action('PrevDiary')<CR>
-  nnoremap <silent> <buffer> ? <ScriptCmd>help_popup.Show(false)<CR>
+  nnoremap <silent> <buffer> ? <ScriptCmd>help_popup.Show()<CR>
   nnoremap <silent> <buffer> <C-CR> <ScriptCmd>ActionOpenDiaryAndClose()<CR>
   nnoremap <silent> <buffer> <S-CR> <ScriptCmd>ActionOpenDiaryAndClose()<CR>
   nnoremap <silent> <buffer> <F5> <Cmd>CalendarRefresh<CR>
 
-enddef
-
-# Key filter for the calendar popup window.
-# Handles navigation (arrows, t), day selection (hjkl, <CR>), diary cycling
-# (Tab/S-Tab), help (?), and close (q/<Esc>).  Must return true for handled
-# keys so Vim suppresses default popup behaviour.
-def PopupFilter(id: number, key: string): bool
-  if key ==# 'q' || key ==# "\<Esc>"
-    popup_close(id)
-    popup_id = -1
-    popup_selection.Reset()
-    return true
-  elseif key ==# "\<Down>"
-    var ym = calendar_view.AddMonths(popup_year, popup_month, 1)
-    popup_year = ym[0] | popup_month = ym[1]
-    RenderView(popup_year, popup_month)
-    return true
-  elseif key ==# "\<Up>"
-    var ym = calendar_view.AddMonths(popup_year, popup_month, -1)
-    popup_year = ym[0] | popup_month = ym[1]
-    RenderView(popup_year, popup_month)
-    return true
-  elseif key ==# "\<Right>"
-    popup_year += 1
-    RenderView(popup_year, popup_month)
-    return true
-  elseif key ==# "\<Left>"
-    popup_year -= 1
-    RenderView(popup_year, popup_month)
-    return true
-  elseif key ==# "\<CR>"
-    if !PopupOpenSelectedDay()
-      Action()
-    endif
-    Close()
-    return true
-  elseif key ==# '?'
-    help_popup.Show(true)
-    return true
-  elseif key ==# 't'
-    popup_year = str2nr(strftime('%Y'))
-    popup_month = str2nr(strftime('%m'))
-    RenderView(popup_year, popup_month)
-    return true
-  elseif key ==# "\<Tab>"
-    PopupCycleDiary(1)
-    return true
-  elseif key ==# "\<S-Tab>"
-    PopupCycleDiary(-1)
-    return true
-  elseif key ==# "\<CursorHold>"
-    return true
-  elseif key ==# 'h' || key ==# 'j' || key ==# 'k' || key ==# 'l'
-    popup_selection.Move(key)
-    return true
-  endif
-  return false
 enddef
 
 # Toggle the calendar tab: jump to it if open elsewhere, close if current,
@@ -643,13 +523,15 @@ export def CalendarToggle(year: number = -1, month: number = -1)
       endif
     else
       execute $'tabnext {tabnr}'
-      win_gotoid(cal_tab_winid)
+      var week_windows = win_findbuf(bufnr(week_view.WEEK_BUF_NAME))
+      win_gotoid(empty(week_windows) ? cal_tab_winid : week_windows[0])
     endif
     return
   endif
 
   Show(year, month)
-  cal_tab_winid = win_getid()
+  var calendar_windows = win_findbuf(bufnr(cal_bufname))
+  cal_tab_winid = empty(calendar_windows) ? -1 : calendar_windows[0]
   week_view.CallConnectHook()
   week_view.RescheduleReminders()
 enddef
@@ -671,14 +553,17 @@ export def CalendarWipe()
                 week_view.APPT_BUF_NAME]
     var bn = bufnr(bname)
     if bn > 0
+      if exists('+winfixbuf')
+        for winid in win_findbuf(bn)
+          win_execute(winid, 'setlocal nowinfixbuf')
+        endfor
+      endif
       execute $'silent! bwipeout! {bn}'
     endif
   endfor
 enddef
 
-# Main entrypoint called by :Calendar.
-# In split mode: opens a new tab with the calendar pane and (if configured)
-# the week view pane side by side.  In popup mode: creates a centred popup.
+# Main entrypoint: opens a tab with calendar and week-view panes side by side.
 export def Show(year: number = -1, month: number = -1): string
 
   if !InitVariables()
@@ -687,11 +572,6 @@ export def Show(year: number = -1, month: number = -1): string
 
   var y = year == -1 ? str2nr(strftime('%Y')) : year
   var m = month == -1 ? str2nr(strftime('%m')) : month
-
-  if cfg_position ==# 'popup'
-    RenderView(y, m)
-    return ''
-  endif
 
   # Open a dedicated tab: calendar on one side, week view on the other.
   tabnew
@@ -711,7 +591,8 @@ export def Show(year: number = -1, month: number = -1): string
     week_view.RenderWeekView(y, m, selected_day, {})
   endif
 
-  win_gotoid(cal_winid)
+  var week_windows = win_findbuf(bufnr(week_view.WEEK_BUF_NAME))
+  win_gotoid(empty(week_windows) ? cal_winid : week_windows[0])
   return ''
 enddef
 

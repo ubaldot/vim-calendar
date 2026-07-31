@@ -15,22 +15,60 @@ def ResetConfig()
     number_of_months: 3,
     holidays: {},
     search_grep: 'internal',
-    action: 'OpenDiaryPage',
     auto_create_diary_dirs: false,
     diaries_dict: {My_Diary: {path: '~/my_diary', resolution: 'day'}},
     active_diary: 'My_Diary',
   }
 enddef
 
+def CursorOnMonthDay(month_header: string, day: number)
+  var header_line = search($'^\s*{month_header}\s*$', 'w')
+  assert_true(header_line > 0, $'Missing month header: {month_header}')
+  for lnum in range(header_line + 2, min([header_line + 8, line('$')]))
+    var day_col = match(getline(lnum), '\<' .. string(day) .. '\>')
+    if day_col >= 0
+      cursor(lnum, day_col + 1)
+      return
+    endif
+  endfor
+  assert_true(false, $'Missing day {day} in {month_header}')
+enddef
+
+def FocusCalendar()
+  var windows = win_findbuf(bufnr('__Calendar__'))
+  if !empty(windows)
+    win_gotoid(windows[0])
+  endif
+enddef
+
 def g:Test_calendar_basic()
   ResetConfig()
   CalendarToggle 1998, 10
   WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
   assert_equal('row', winlayout()[0])
   assert_equal('Hit "?" for help', getline(1))
   assert_match('October 1998', join(getline(1, '$'), "\n"))
   execute "normal q"
   assert_equal(1, winnr('$'))
+enddef
+
+def g:Test_calendar_reuses_stale_hidden_buffer()
+  ResetConfig()
+  if exists('+winfixbuf')
+    setlocal nowinfixbuf
+  endif
+  enew
+  file __Calendar__
+  setlocal bufhidden=hide
+  enew
+
+  CalendarToggle 2026, 8
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  assert_equal(1, len(win_findbuf(bufnr('__Calendar__'))))
+  assert_equal('__WeekView__', bufname('%'))
+
+  CalendarWipe
 enddef
 
 def g:Test_calendar_arguments()
@@ -39,11 +77,13 @@ def g:Test_calendar_arguments()
 
   CalendarToggle 2031
   WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
   assert_match($'{current_month_name}\s\+2031', join(getline(1, '$'), "\n"))
   execute "normal q"
 
   CalendarToggle 2032, 5
   WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
   assert_match('May\s\+2032', join(getline(1, '$'), "\n"))
   execute "normal q"
   assert_equal(1, winnr('$'))
@@ -54,25 +94,28 @@ def g:Test_calendar_position_right()
   g:calendar_config.position = 'right'
   CalendarToggle 2020, 2
   WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
   assert_equal('row', winlayout()[0])
   assert_match('February 2020', join(getline(1, '$'), "\n"))
   :%bw!
   assert_equal(1, winnr('$'))
 enddef
 
-def g:Test_calendar_position_popup()
+def g:Test_invalid_position_falls_back_to_left()
   ResetConfig()
-  g:calendar_config.position = 'popup'
+  g:calendar_config.position = 'invalid'
   CalendarToggle 2020, 2
-  WaitForAssert(() => assert_equal(1, winnr('$')))
-  assert_true(len(popup_list()) > 0)
-  popup_close(popup_list()[0])
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
+  assert_equal('row', winlayout()[0])
+  execute "normal q"
 enddef
 
 def g:Test_calendar_help_popup()
   ResetConfig()
   CalendarToggle 2020, 2
   WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
 
   feedkeys('?', 'xt')
   WaitForAssert(() => assert_equal(1, len(popup_list())))
@@ -86,47 +129,11 @@ def g:Test_show_week_numbers_column()
   g:calendar_config.show_week_number = true
   CalendarToggle 2026, 7
   WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
   assert_match('^WK  ', getline(4))
   assert_match('^\s*\d\{2}\s', getline(5))
   :%bw!
   assert_equal(1, winnr('$'))
-enddef
-
-def g:MyTestCalAction(day: number, month: number, year: number, week: number)
-  g:test_action_called = 1
-  g:test_action_day = day
-enddef
-
-def g:Test_action_from_config()
-  # In split mode (with week view), <CR> navigates the week view and does NOT
-  # call cfg_action. cfg_action is only invoked in popup mode.
-  ResetConfig()
-  g:test_action_called = 0
-  g:calendar_config.action = 'g:MyTestCalAction'
-  CalendarToggle 2026, 7
-  WaitForAssert(() => assert_equal(3, winnr('$')))
-  call cursor(5, 11)
-  execute "normal \<CR>"
-  assert_equal(0, g:test_action_called)
-  execute "normal q"
-  unlet g:test_action_called
-enddef
-
-def g:Test_popup_selection_moves_before_action()
-  ResetConfig()
-  g:calendar_config.position = 'popup'
-  g:calendar_config.action = 'g:MyTestCalAction'
-  g:test_action_called = 0
-
-  CalendarToggle 2025, 7
-  WaitForAssert(() => assert_true(len(popup_list()) > 0))
-  feedkeys("l\<CR>", 'xt')
-
-  assert_equal(1, g:test_action_called)
-  assert_equal(2, g:test_action_day,
-    'Moving right from the initial popup selection must choose day 2')
-  unlet g:test_action_called
-  unlet g:test_action_day
 enddef
 
 def g:Test_autocmd_before_show()
@@ -139,6 +146,7 @@ def g:Test_autocmd_before_show()
 
   CalendarToggle 2024, 1
   WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
   assert_equal(1, g:test_before_show)
   execute "normal q"
   augroup CalendarTestAu
@@ -157,6 +165,7 @@ def g:Test_diary_cycle_split_tab_keys()
 
   CalendarToggle 2026, 7
   WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
 
   feedkeys("\<Tab>", 'xt')
   WaitForAssert(() => assert_equal('Beta', g:calendar_config.active_diary))
@@ -167,33 +176,11 @@ def g:Test_diary_cycle_split_tab_keys()
   execute "normal q"
 enddef
 
-def g:Test_diary_cycle_popup_tab_keys()
-  ResetConfig()
-  g:calendar_config.position = 'popup'
-  g:calendar_config.diaries_dict = {
-    Alpha: {path: '~/my_diary', resolution: 'month'},
-    Beta: {path: '~/my_diary', resolution: 'day'},
-  }
-  g:calendar_config.active_diary = 'Alpha'
-
-  CalendarToggle 2026, 7
-  WaitForAssert(() => assert_true(len(popup_list()) > 0))
-
-  feedkeys("\<Tab>", 'xt')
-  WaitForAssert(() => assert_equal('Beta', g:calendar_config.active_diary))
-
-  feedkeys("\<S-Tab>", 'xt')
-  WaitForAssert(() => assert_equal('Alpha', g:calendar_config.active_diary))
-
-  popup_close(popup_list()[0])
-enddef
-
 def g:Test_open_diary_auto_create_dirs_month_resolution()
   ResetConfig()
   var tmp_root = tempname() .. '_calendar_diary'
   delete(tmp_root, 'rf')
 
-  g:calendar_config.position = 'popup'
   g:calendar_config.diaries_dict = {
     My_Diary: {path: tmp_root, resolution: 'month'},
   }
@@ -201,8 +188,10 @@ def g:Test_open_diary_auto_create_dirs_month_resolution()
   g:calendar_config.auto_create_diary_dirs = true
 
   CalendarToggle 2026, 7
-  WaitForAssert(() => assert_true(len(popup_list()) > 0))
-  feedkeys("\<CR>", 'xt')
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
+  CursorOnMonthDay('July 2026', 1)
+  execute "normal \<C-CR>"
 
   assert_true(isdirectory(tmp_root))
   assert_true(isdirectory(tmp_root .. '/2026'))
@@ -217,7 +206,6 @@ def g:Test_open_diary_auto_create_dirs_day_resolution()
   var tmp_root = tempname() .. '_calendar_diary_day'
   delete(tmp_root, 'rf')
 
-  g:calendar_config.position = 'popup'
   g:calendar_config.diaries_dict = {
     My_Diary: {path: tmp_root, resolution: 'day'},
   }
@@ -225,7 +213,8 @@ def g:Test_open_diary_auto_create_dirs_day_resolution()
   g:calendar_config.auto_create_diary_dirs = true
 
   CalendarToggle 2026, 7
-  WaitForAssert(() => assert_true(len(popup_list()) > 0))
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
 
   var path = calendar_view.DiaryFilePath(2026, 7, 15)
   assert_match('2026[/\\]July[/\\]15\.md$', path,
@@ -240,7 +229,6 @@ def g:Test_open_diary_path_with_special_characters()
   var tmp_root = tempname() .. '_calendar diary #1'
   delete(tmp_root, 'rf')
 
-  g:calendar_config.position = 'popup'
   g:calendar_config.diaries_dict = {
     My_Diary: {path: tmp_root, resolution: 'month'},
   }
@@ -248,8 +236,10 @@ def g:Test_open_diary_path_with_special_characters()
   g:calendar_config.auto_create_diary_dirs = true
 
   CalendarToggle 2026, 7
-  WaitForAssert(() => assert_true(len(popup_list()) > 0))
-  feedkeys("\<CR>", 'xt')
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
+  CursorOnMonthDay('July 2026', 1)
+  execute "normal \<C-CR>"
 
   assert_equal(
     fnamemodify(tmp_root .. '/2026/July.md', ':p')->substitute('\\', '/', 'g'),
