@@ -230,7 +230,7 @@ The `connect` value is the name of a *global* Vim function (string).
 vim-calendar calls it whenever a new week needs data: >
 
     def g:MyCalendarFetch(year: number, month: number, day: number): string
-      # Fetch appointments for the ISO week that contains (year, month, day).
+      # Fetch appointments for the visible week that contains (year, month, day).
       # Write them to a JSON file and return the file path.
       # Return '' on failure.
       var tmp = tempname() .. '.json'

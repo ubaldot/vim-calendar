@@ -13,6 +13,7 @@ import autoload "../lib/reminder.vim"
 # Connect function used by tests: copies the fixture JSON to a temp file and
 # returns its path (which LoadAppointments will consume and delete).
 def g:TestWeekConnect(year: number, month: number, day: number): string
+  g:last_week_connect_args = [year, month, day]
   var src = 'fixtures/appointments.json'
   if !filereadable(src)
     return ''
@@ -275,6 +276,43 @@ def g:Test_configure_us_display_type()
   assert_true(sun_col < mon_col, 'Sunday column must precede Monday in us mode')
 enddef
 
+def g:Test_us_display_uses_chronological_sunday_week()
+  ResetConfig()
+  g:calendar_config.week_display_type = 'us'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+
+  week_view.NavigateWeekView(2026, 7, 27)
+  week_view.CallConnectHook(2026, 7, 27)
+
+  var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
+  var label_lines = filter(copy(hdr), 'v:val =~# "Sunday"')
+  assert_false(empty(label_lines), 'US header must contain Sunday')
+  assert_match('26, Sunday', label_lines[0],
+    'US week containing Monday 27 July must start on Sunday 26 July')
+  assert_match('27, Monday', label_lines[0],
+    'Monday must follow the preceding Sunday')
+  assert_true(HasLine(hdr, 'Company Offsite'),
+    'All-day events must render in chronological US weeks')
+  assert_equal('2026-07-26', t:cal_week_key,
+    'US cache keys must use the displayed Sunday')
+enddef
+
+def g:Test_connect_hook_uses_visible_week()
+  ResetConfig()
+  CalendarToggle 2020, 2
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+
+  var args = g:last_week_connect_args
+  var days = backend.WeekDays(args[0], args[1], args[2])
+  var expected_key = printf('%04d-%02d-%02d',
+    days[0].year, days[0].month, days[0].day)
+  assert_equal(expected_key, t:cal_week_key,
+    'Hook results must be cached under the week passed to the hook')
+  assert_equal(2020, args[0],
+    'Opening a historical month must fetch appointments for that year')
+enddef
+
 def g:Test_configure_invalid_type_defaults_to_eu()
   ResetConfig()
   CalendarToggle
@@ -478,6 +516,26 @@ def g:Test_reschedule_reminders_schedules_todays_meetings()
   assert_true(reminder.PendingCount() >= 1,
     'RescheduleReminders must create a timer for a future meeting today')
   reminder.CancelAll()
+enddef
+
+def g:Test_reschedule_reminders_cancels_stale_timers()
+  var future_min = str2nr(strftime('%H')) * 60
+    + str2nr(strftime('%M')) + 30
+  if future_min >= 24 * 60 | return | endif
+
+  reminder.Schedule(strftime('%Y-%m-%d'), [{
+    start: printf('%02d:%02d', future_min / 60, future_min % 60),
+    end: printf('%02d:%02d', (future_min + 30) / 60,
+      (future_min + 30) % 60),
+    subject: 'Removed Meeting',
+    entryid: 'REMOVED_EID',
+  }])
+  assert_equal(2, reminder.PendingCount())
+
+  week_view.SetConnectFunc('g:TestWeekConnect')
+  week_view.RescheduleReminders()
+  assert_equal(0, reminder.PendingCount(),
+    'Refreshing to an empty cache must cancel obsolete reminders')
 enddef
 
 # vim: shiftwidth=2 softtabstop=2 noexpandtab

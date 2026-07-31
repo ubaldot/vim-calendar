@@ -1,11 +1,12 @@
 vim9script
 
+import autoload "./appointments.vim"
 import autoload "./backend.vim"
 import autoload "./highlights.vim"
 import autoload "./reminder.vim"
 
 # Week view panel — self-contained module.
-# Owns: WEEK_BUF_NAME, week_cache.
+# Owns the week view buffers and rendering state.
 # Shared state lives in t:cal_* (tab-local, single calendar tab enforced).
 # Date math is delegated to backend.vim.
 
@@ -17,8 +18,6 @@ const WEEK_DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
 var week_day_col          = 16   # cell width; set via Configure()
 var cfg_week_display_type = 'eu' # 'eu' | 'us' | 'work'; set via Configure()
 
-var week_cache: dict<dict<list<any>>> = {}
-
 # Maps body-buffer line number (as string) → 7-element list of appointment
 # dicts, one per day column.  Empty dict means no appointment in that cell.
 # Rebuilt on every RenderWeekView call.
@@ -28,7 +27,7 @@ var appt_line_map: dict<list<dict<any>>> = {}
 # Must be called whenever the active diary changes.
 export def SetConnectFunc(name: string)
   t:cal_connect_func = name
-  week_cache = {}
+  appointments.Clear()
   appt_line_map = {}
 enddef
 
@@ -46,13 +45,16 @@ def NumDays(): number
   return cfg_week_display_type ==# 'work' ? 5 : 7
 enddef
 
-# Return wdays reordered for the configured display type.
-# backend.WeekDays always returns [Mon..Sun] (indices 0-6).
-def DisplayWdays(wdays: list<dict<any>>): list<dict<any>>
+# Return the dates shown for the configured display type.
+# EU/work weeks are ISO Monday-based; US weeks are chronological Sunday-based.
+def DisplayWdays(year: number, month: number, day: number,
+                 wdays: list<dict<any>>): list<dict<any>>
   if cfg_week_display_type ==# 'work'
     return wdays[0 : 4]                      # Mon–Fri
   elseif cfg_week_display_type ==# 'us'
-    return [wdays[6]] + wdays[0 : 5]         # Sun–Sat
+    var sunday_jdn = backend.DateToJDN(year, month, day)
+      - (backend.WeekdayForDate(year, month, day) % 7)
+    return range(7)->mapnew((i, _) => backend.JDNToDate(sunday_jdn + i))
   endif
   return wdays                                # eu: Mon–Sun
 enddef
@@ -67,19 +69,16 @@ def DayFullLabels(): list<string>
   return WEEK_DAY_FULL
 enddef
 
-# Return the Monday date string ('YYYY-MM-DD') for the ISO week containing
-# the given date.  Used as key in week_cache.
+# Return the displayed week's start date for use as an appointment cache key.
 def WeekCacheKey(year: number, month: number, day: number): string
-  var days = backend.WeekDays(year, month, day)
-  return printf('%04d-%02d-%02d', days[0].year, days[0].month, days[0].day)
+  var start = cfg_week_display_type ==# 'us'
+    ? backend.JDNToDate(backend.DateToJDN(year, month, day)
+        - (backend.WeekdayForDate(year, month, day) % 7))
+    : backend.WeekDays(year, month, day)[0]
+  return printf('%04d-%02d-%02d', start.year, start.month, start.day)
 enddef
 
 # ─── Render helpers ──────────────────────────────────────────────────────────
-
-# Strip carriage returns (\r) left by Windows line endings in JSON fields.
-def StripCR(s: string): string
-  return substitute(s, "\r", '', 'g')
-enddef
 
 def MonthName(month: number): string
   return backend.month_num_to_str[printf('%02d', month)]
@@ -233,7 +232,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
 
   t:cal_week_key = WeekCacheKey(year, month, day)
   var wdays         = backend.WeekDays(year, month, day)
-  var display_wdays = DisplayWdays(wdays)
+  var display_wdays = DisplayWdays(year, month, day, wdays)
   var n_days        = len(display_wdays)
   var week_num      = backend.ISOWeekNum(year, month, day)
   var day_labels_full = DayFullLabels()
@@ -333,13 +332,13 @@ enddef
 # an empty grid (the hook will fill it in synchronously via LoadAppointments).
 export def NavigateWeekView(year: number, month: number, day: number)
   var cache_key = WeekCacheKey(year, month, day)
-  if has_key(week_cache, cache_key)
-    RenderWeekView(year, month, day, week_cache[cache_key])
+  if appointments.Has(cache_key)
+    RenderWeekView(year, month, day, appointments.Get(cache_key))
   else
     # Set t:cal_week_key before the hook fires so LoadAppointments caches correctly.
     t:cal_week_key = cache_key
     CallConnectHook(year, month, day)
-    if !has_key(week_cache, cache_key)
+    if !appointments.Has(cache_key)
       RenderWeekView(year, month, day, {})
     endif
   endif
@@ -351,9 +350,19 @@ export def CallConnectHook(year: number = -1, month: number = -1, day: number = 
   if empty(get(t:, 'cal_connect_func', '')) || !exists($'*{t:cal_connect_func}')
     return
   endif
-  var fy = year  > 0 ? year  : str2nr(strftime('%Y'))
-  var fm = month > 0 ? month : str2nr(strftime('%m'))
-  var fd = day   > 0 ? day   : str2nr(strftime('%d'))
+  var stored_key = get(t:, 'cal_week_key', '')
+  var use_stored = year <= 0 && month <= 0 && day <= 0
+    && stored_key =~# '^\d\{4}-\d\{2}-\d\{2}$'
+  var fy = year > 0
+    ? year
+    : use_stored ? str2nr(stored_key[0 : 3]) : str2nr(strftime('%Y'))
+  var fm = month > 0
+    ? month
+    : use_stored ? str2nr(stored_key[5 : 6]) : str2nr(strftime('%m'))
+  var fd = day > 0
+    ? day
+    : use_stored ? str2nr(stored_key[8 : 9]) : str2nr(strftime('%d'))
+  t:cal_week_key = WeekCacheKey(fy, fm, fd)
   var path = function(t:cal_connect_func)(fy, fm, fd)
   if !empty(path)
     LoadAppointments(path)
@@ -363,53 +372,11 @@ enddef
 # Parse the JSON at path, cache events for the current week, and re-render.
 # JSON format: list of {start, end, subject, organizer, location, body}.
 def LoadAppointments(path: string)
-  if !filereadable(path)
+  var loaded = appointments.LoadFile(path)
+  if !loaded.ok
     return
   endif
-  var items: list<any> = []
-  try
-    items = json_decode(readfile(path)->join("\n"))
-  catch
-    echomsg '[Calendar] Could not parse appointments file.'
-    return
-  endtry
-  delete(path)   # consumed — no longer needed on disk
-
-  var events: dict<list<any>> = {}
-  var allday: list<any> = []
-
-  for item in items
-    if get(item, 'allday', false)
-      # Outlook all-day end is exclusive (next-day midnight) — subtract 1 day.
-      var end_str = strpart(get(item, 'end', ''), 0, 10)
-      var ey = str2nr(end_str[0 : 3])
-      var em = str2nr(end_str[5 : 6])
-      var ed = str2nr(end_str[8 : 9])
-      var last = backend.JDNToDate(backend.DateToJDN(ey, em, ed) - 1)
-      allday->add({
-        start_date: strpart(get(item, 'start', ''), 0, 10),
-        end_date:   printf('%04d-%02d-%02d', last.year, last.month, last.day),
-        subject:    StripCR(get(item, 'subject',   '')),
-        organizer:  StripCR(get(item, 'organizer', '')),
-      })
-    else
-      var date_key = strpart(get(item, 'start', ''), 0, 10)
-      if !has_key(events, date_key)
-        events[date_key] = []
-      endif
-      events[date_key]->add({
-        start:     strpart(get(item, 'start', ''), 11, 5),
-        end:       strpart(get(item, 'end',   ''), 11, 5),
-        subject:   StripCR(get(item, 'subject',   '')),
-        organizer: StripCR(get(item, 'organizer', '')),
-        location:  StripCR(get(item, 'location',  '')),
-        body:      StripCR(get(item, 'body',      '')),
-        entryid:   get(item, 'entryid', ''),
-      })
-    endif
-  endfor
-
-  events['allday'] = allday
+  var events: dict<list<any>> = loaded.events
 
   var stored_key = get(t:, 'cal_week_key', '')
   var key = empty(stored_key)
@@ -418,7 +385,7 @@ def LoadAppointments(path: string)
   var ky = str2nr(key[0 : 3])
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
-  week_cache[key] = events
+  appointments.Put(key, events)
   RenderWeekView(ky, km, kd, events)
 enddef
 
@@ -432,9 +399,7 @@ export def CalendarRefresh()
   var key = empty(stored_key)
     ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
     : stored_key
-  if has_key(week_cache, key)
-    remove(week_cache, key)
-  endif
+  appointments.Remove(key)
   var ky = str2nr(key[0 : 3])
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
@@ -442,18 +407,13 @@ export def CalendarRefresh()
   RescheduleReminders()
 enddef
 
-# Scan week_cache for today's meetings and (re)schedule reminder timers.
+# Scan cached appointments for today's meetings and reschedule reminder timers.
 # Called explicitly after every connect hook — the authoritative place to
 # trigger reminders so the scheduling is always visible and not a buried
 # side effect of LoadAppointments.
 export def RescheduleReminders()
   var today_key = strftime('%Y-%m-%d')
-  for [_, events] in items(week_cache)
-    if has_key(events, today_key)
-      reminder.Schedule(today_key, events[today_key])
-      return
-    endif
-  endfor
+  reminder.Schedule(today_key, appointments.EventsOn(today_key))
 enddef
 
 # Return the appointment dict under the cursor in the __WeekView__ buffer,

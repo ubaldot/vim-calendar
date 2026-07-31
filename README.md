@@ -159,6 +159,14 @@ $book = $contacts | ForEach-Object {
 :help calendar
 ```
 
+## Code structure
+
+- `frontend.vim` coordinates calendar windows, navigation, and public commands.
+- `calendar_view.vim` and `week_view.vim` render calendar and appointment views.
+- `config.vim`, `diary.vim`, and `diary_search.vim` own configuration and diary operations.
+- `appointments.vim` parses and caches appointment data.
+- `popup_selection.vim`, `help_popup.vim`, and `highlights.vim` contain focused UI behavior.
+
 ## License
 
 BSD-3.

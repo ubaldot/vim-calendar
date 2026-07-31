@@ -5,6 +5,7 @@ var WaitForAssert = common.WaitForAssert
 
 packadd CalendarToggle
 import autoload "../lib/calendar_view.vim"
+import autoload "../lib/frontend.vim"
 
 def ResetConfig()
   g:calendar_config = {
@@ -68,6 +69,18 @@ def g:Test_calendar_position_popup()
   popup_close(popup_list()[0])
 enddef
 
+def g:Test_calendar_help_popup()
+  ResetConfig()
+  CalendarToggle 2020, 2
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+
+  feedkeys('?', 'xt')
+  WaitForAssert(() => assert_equal(1, len(popup_list())))
+  popup_close(popup_list()[0])
+
+  execute 'normal q'
+enddef
+
 def g:Test_show_week_numbers_column()
   ResetConfig()
   g:calendar_config.show_week_number = true
@@ -97,6 +110,23 @@ def g:Test_action_from_config()
   assert_equal(0, g:test_action_called)
   execute "normal q"
   unlet g:test_action_called
+enddef
+
+def g:Test_popup_selection_moves_before_action()
+  ResetConfig()
+  g:calendar_config.position = 'popup'
+  g:calendar_config.action = 'g:MyTestCalAction'
+  g:test_action_called = 0
+
+  CalendarToggle 2025, 7
+  WaitForAssert(() => assert_true(len(popup_list()) > 0))
+  feedkeys("l\<CR>", 'xt')
+
+  assert_equal(1, g:test_action_called)
+  assert_equal(2, g:test_action_day,
+    'Moving right from the initial popup selection must choose day 2')
+  unlet g:test_action_called
+  unlet g:test_action_day
 enddef
 
 def g:Test_autocmd_before_show()
@@ -202,5 +232,56 @@ def g:Test_open_diary_auto_create_dirs_day_resolution()
     'day resolution DiaryFilePath must return YYYY/MonthName/DD.md')
 
   :%bw!
+  delete(tmp_root, 'rf')
+enddef
+
+def g:Test_open_diary_path_with_special_characters()
+  ResetConfig()
+  var tmp_root = tempname() .. '_calendar diary #1'
+  delete(tmp_root, 'rf')
+
+  g:calendar_config.position = 'popup'
+  g:calendar_config.diaries_dict = {
+    My_Diary: {path: tmp_root, resolution: 'month'},
+  }
+  g:calendar_config.active_diary = 'My_Diary'
+  g:calendar_config.auto_create_diary_dirs = true
+
+  CalendarToggle 2026, 7
+  WaitForAssert(() => assert_true(len(popup_list()) > 0))
+  feedkeys("\<CR>", 'xt')
+
+  assert_equal(
+    fnamemodify(tmp_root .. '/2026/July.md', ':p')->substitute('\\', '/', 'g'),
+    expand('%:p')->substitute('\\', '/', 'g'),
+    'Diary paths must survive spaces and Ex-special characters')
+
+  bwipeout!
+  delete(tmp_root, 'rf')
+enddef
+
+def g:Test_calendar_search_path_with_special_characters()
+  ResetConfig()
+  var tmp_root = tempname() .. '_calendar search #1'
+  var year_dir = tmp_root .. '/2026'
+  mkdir(year_dir, 'p')
+  writefile(['project needle', 'literal | marker'], year_dir .. '/July notes.md')
+
+  g:calendar_config.diaries_dict = {
+    My_Diary: {path: tmp_root, resolution: 'month'},
+  }
+  g:calendar_config.active_diary = 'My_Diary'
+
+  execute 'CalendarSearch project\ needle 2026'
+  var results = getqflist()
+  assert_equal(1, len(results))
+  assert_equal('project needle', results[0].text)
+
+  frontend.Search('literal | marker', '2026')
+  results = getqflist()
+  assert_equal(1, len(results))
+  assert_equal('literal | marker', results[0].text)
+
+  cclose
   delete(tmp_root, 'rf')
 enddef

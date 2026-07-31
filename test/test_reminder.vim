@@ -101,3 +101,31 @@ def g:Test_reminder_within_15min_window_fires_immediately()
   assert_equal(2, reminder.PendingCount())
   reminder.CancelAll()
 enddef
+
+def g:Test_reminder_reschedule_does_not_repeat_fired_warning()
+  reminder.SetSoundEnabled(false)
+  var now_min = str2nr(strftime('%H')) * 60 + str2nr(strftime('%M'))
+  var meet_min = now_min + 10
+  if meet_min >= 24 * 60 | return | endif
+  var meeting = {
+    start: printf('%02d:%02d', meet_min / 60, meet_min % 60),
+    end: printf('%02d:%02d', (meet_min + 30) / 60, (meet_min + 30) % 60),
+    subject: 'Deduplicated warning',
+    entryid: 'DEDUPE_WARNING',
+  }
+
+  reminder.Schedule(TODAY, [meeting])
+  sleep 700m
+  assert_equal(1, len(popup_list()),
+    'The first pre-start warning must create one popup')
+
+  reminder.Schedule(TODAY, [meeting])
+  assert_equal(1, reminder.PendingCount(),
+    'Only the unfired start-time timer should remain after rescheduling')
+  sleep 700m
+  assert_equal(1, len(popup_list()),
+    'Rescheduling must not create another pre-start popup')
+
+  reminder.CancelAll()
+  reminder.SetSoundEnabled(true)
+enddef
