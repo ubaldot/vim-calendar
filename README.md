@@ -6,6 +6,8 @@ A Vim 9.0 ported and refactored version of [mattn/calendar-vim][1].
 
 ## What it does
 
+REMOVE ME
+
 - Split-window calendar (EU, US, or work-week layout)
 - ISO week-number column (optional)
 - Multiple diary books — per-diary path, resolution, and Outlook connect hook
@@ -117,8 +119,8 @@ The PowerShell script must write a UTF-8 **without BOM** JSON file
 ]
 ```
 
-Required fields: `start`, `end`, `subject`.  
-Optional: `organizer`, `location`, `body`, `entryid`, `allday`.  
+Required fields: `start`, `end`, `subject`.
+Optional: `organizer`, `location`, `body`, `entryid`, `allday`.
 All-day `end` is exclusive (Outlook convention: a Mon–Wed event ends on Thu midnight).
 
 ### Week view key bindings
