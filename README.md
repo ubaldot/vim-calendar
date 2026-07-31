@@ -6,8 +6,6 @@ A Vim 9.0 ported and refactored version of [mattn/calendar-vim][1].
 
 ## What it does
 
-REMOVE ME
-
 - Split-window calendar (EU, US, or work-week layout)
 - ISO week-number column (optional)
 - Multiple diary books — per-diary path, resolution, and Outlook connect hook
