@@ -68,7 +68,7 @@ empty hour cell to create an event, or on an existing event to edit it.
 | `Title` | Required |
 | `Start`, `End` | Required; `YYYY-MM-DD HH:MM` |
 | `Organizer`, `Location` | Optional |
-| `AllDay` | `true` or `false` |
+| `AllDay` | `true` or `false`; times are ignored and the end date is exclusive |
 | `Body` | Optional; may continue on following lines |
 
 Press `W` to save/create/update, `Q` to discard, or `?` for field help.

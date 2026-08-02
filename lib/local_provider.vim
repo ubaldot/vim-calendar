@@ -2,6 +2,8 @@ vim9script
 
 # Built-in JSON event provider used when a diary defines no provider hooks.
 
+import autoload "./backend.vim"
+
 var events_path = ''
 
 def DefaultDataDir(): string
@@ -153,6 +155,26 @@ def BuildEventFromForm(fields: dict<string>): dict<any>
     echoerr '[Calendar] AllDay must be true or false.'
     return {}
   endif
+  var is_allday = allday ==# 'true'
+  if is_allday
+    var start_date = start[0 : 9]
+    var end_date = end[0 : 9]
+    if end_date < start_date
+      echoerr '[Calendar] All-day end date must not precede its start date.'
+      return {}
+    endif
+    if end_date ==# start_date
+      var parts = split(start_date, '-')
+      var next = backend.JDNToDate(backend.DateToJDN(
+        str2nr(parts[0]), str2nr(parts[1]), str2nr(parts[2])) + 1)
+      end_date = printf('%04d-%02d-%02d', next.year, next.month, next.day)
+    endif
+    start = start_date .. ' 00:00'
+    end = end_date .. ' 00:00'
+  elseif end <=# start
+    echoerr '[Calendar] End must be after start.'
+    return {}
+  endif
   return {
     id: get(form_existing, 'id', $'local-{localtime()}-{rand()}'),
     start: substitute(start, ' ', 'T', ''),
@@ -162,7 +184,7 @@ def BuildEventFromForm(fields: dict<string>): dict<any>
       get(form_existing, 'organizer', '')),
     location: get(fields, 'Location', ''),
     body: get(fields, 'Body', get(form_existing, 'body', '')),
-    allday: allday ==# 'true',
+    allday: is_allday,
   }
 enddef
 
@@ -204,7 +226,7 @@ def ShowFormHelp()
     'End         required, YYYY-MM-DD HH:MM',
     'Organizer   optional',
     'Location    optional',
-    'AllDay      true or false',
+    'AllDay      true or false; times are ignored',
     'Body        optional; continuation lines are supported',
     '',
     'The event ID is generated and preserved automatically.',

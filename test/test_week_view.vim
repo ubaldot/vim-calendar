@@ -320,10 +320,19 @@ def g:Test_week_view_diary_cycle_tab_keys()
   WaitForAssert(() => assert_equal(3, winnr('$')))
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
+  reminder.Schedule(strftime('%Y-%m-%d'), [{
+    id: 'old-diary-reminder',
+    start: '24:00',
+    subject: 'Old diary',
+  }])
+  assert_true(reminder.PendingCount() > 0)
+
   feedkeys("\<Tab>", 'xt')
   WaitForAssert(() => assert_equal('Beta', g:calendar_config.active_diary))
   assert_equal(week_view.WEEK_BUF_NAME, bufname('%'),
     'Cycling diaries from the week view must not move focus away from it')
+  assert_equal(0, reminder.PendingCount(),
+    'Switching diaries must cancel reminders from the previous provider')
 
   feedkeys("\<S-Tab>", 'xt')
   WaitForAssert(() => assert_equal('Alpha', g:calendar_config.active_diary))
@@ -525,7 +534,11 @@ def g:Test_allday_events_work_mode()
   assert_false(HasLine(hdr, 'Sunday'),   'Sunday must not appear in work-mode header')
 
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_HDR_BUF_NAME))[0])
-  cursor(search('Sprint Planning'), 1)
+  var banner_line = search('Sprint Planning')
+  cursor(banner_line, 1)
+  assert_equal({}, week_view.GetEventAtCursor(),
+    'All-day rows must not act outside the rendered event banner')
+  cursor(banner_line, match(getline(banner_line), 'Sprint Planning') + 1)
   assert_equal('ALLDAY-1', get(week_view.GetEventAtCursor(), 'id', ''))
   execute 'normal d'
   assert_equal({

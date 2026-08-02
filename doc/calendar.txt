@@ -262,7 +262,7 @@ event. A split opens below with these editable fields:
     End         Required; YYYY-MM-DD HH:MM
     Organizer   Optional
     Location    Optional
-    AllDay      true or false
+    AllDay      true or false; times are ignored and end date is exclusive
     Body        Optional; may continue on following lines
 
 Press `W` (or use |:w|) to persist the event, `Q` to discard it, or `?` to

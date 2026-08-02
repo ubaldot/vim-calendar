@@ -158,6 +158,7 @@ def CycleDiary(step: number): bool
       week_view.RenderWeekView(ty, tm, td, {})
     endif
   endif
+  week_view.RescheduleReminders()
 
   return true
 enddef
@@ -266,6 +267,7 @@ def SwitchDiaryAtCursor(): bool
   RenderView(state_base_year, state_base_month)
   setpos('.', curp)
   week_view.FetchEvents()
+  week_view.RescheduleReminders()
   return true
 enddef
 

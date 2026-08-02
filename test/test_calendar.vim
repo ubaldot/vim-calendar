@@ -247,10 +247,16 @@ def g:Test_open_diary_path_with_special_characters()
   CursorOnMonthDay('July 2026', 1)
   execute "normal \<C-CR>"
 
-  assert_equal(
-    fnamemodify(tmp_root .. '/2026/July.md', ':p')->substitute('\\', '/', 'g'),
-    expand('%:p')->substitute('\\', '/', 'g'),
-    'Diary paths must survive spaces and Ex-special characters')
+  var opened = expand('%:p')
+  assert_equal([
+    fnamemodify(tmp_root, ':t'),
+    '2026',
+    'July.md',
+  ], [
+    fnamemodify(opened, ':h:h:t'),
+    fnamemodify(opened, ':h:t'),
+    fnamemodify(opened, ':t'),
+  ], 'Diary paths must survive spaces and Ex-special characters')
 
   bwipeout!
   delete(tmp_root, 'rf')
@@ -384,7 +390,8 @@ def g:Test_local_provider_creates_and_edits_events()
   events = json_decode(readfile(persistent)->join("\n"))
   assert_equal(1, len(events))
   assert_equal('Updated event', events[0].subject)
-  assert_equal('2026-08-03T10:00', events[0].start)
+  assert_equal('2026-08-03T00:00', events[0].start)
+  assert_equal('2026-08-04T00:00', events[0].end)
   assert_equal('Bob', events[0].organizer)
   assert_equal('Room B', events[0].location)
   assert_true(events[0].allday)

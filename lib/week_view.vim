@@ -190,7 +190,12 @@ def AllDayRows(events: dict<any>, wdays: list<dict<any>>): list<string>
       ? label .. repeat('-', fill_len)
       : strcharpart(label, 0, cell_width)
     lines->add($'{left_pad}{content}|')
-    allday_line_map[string(len(lines))] = ev
+    var first_col = strlen(left_pad) + 1
+    allday_line_map[string(len(lines))] = {
+      event: ev,
+      first_col: first_col,
+      last_col: strlen(left_pad .. content),
+    }
   endfor
   return lines
 enddef
@@ -459,7 +464,12 @@ enddef
 #   WEEK_TIME_COL chars + '│' then each day = WEEK_DAY_COL chars + '│'
 export def GetEventAtCursor(): dict<any>
   if bufname('%') ==# WEEK_HDR_BUF_NAME
-    return get(allday_line_map, string(line('.')), {})
+    var banner = get(allday_line_map, string(line('.')), {})
+    return !empty(banner)
+        && col('.') >= banner.first_col
+        && col('.') <= banner.last_col
+      ? banner.event
+      : {}
   endif
   var row = get(appt_line_map, string(line('.')), [])
   if empty(row)
