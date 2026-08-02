@@ -6,6 +6,8 @@ var WaitForAssert = common.WaitForAssert
 packadd CalendarToggle
 import autoload "../lib/calendar_view.vim"
 import autoload "../lib/frontend.vim"
+import autoload "../lib/local_provider.vim"
+
 
 def ResetConfig()
   g:calendar_config = {
@@ -16,7 +18,11 @@ def ResetConfig()
     holidays: {},
     search_grep: 'internal',
     auto_create_diary_dirs: false,
-    diaries_dict: {My_Diary: {path: '~/my_diary', resolution: 'day'}},
+    diaries_dict: {My_Diary: {
+      path: '~/my_diary',
+      resolution: 'day',
+      events_file: tempname() .. '.json',
+    }},
     active_diary: 'My_Diary',
   }
 enddef
@@ -274,4 +280,244 @@ def g:Test_calendar_search_path_with_special_characters()
 
   cclose
   delete(tmp_root, 'rf')
+enddef
+
+def g:Test_local_json_provider_fetches_disposable_snapshot()
+  var persistent = tempname() .. '.json'
+  local_provider.Configure('Local', persistent)
+  writefile([json_encode([{
+    id: 'LOCAL-1',
+    start: '2026-08-03T09:00:00',
+    end: '2026-08-03T10:00:00',
+    subject: 'Local test',
+  }])], persistent)
+
+  var snapshot = local_provider.FetchEvents({
+    start: '2026-08-03',
+    end: '2026-08-08',
+  })
+  assert_notequal(persistent, snapshot,
+    'The provider must not expose its persistent file for deletion')
+  var events = json_decode(readfile(snapshot)->join("\n"))
+  assert_equal('Local test', events[0].subject)
+  assert_true(filereadable(persistent))
+
+  delete(snapshot)
+  delete(persistent)
+enddef
+
+def g:Test_hookless_diary_uses_local_provider()
+  ResetConfig()
+  var persistent = tempname() .. '.json'
+  g:calendar_config.diaries_dict.My_Diary.events_file = persistent
+
+  CalendarToggle 2026, 8
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  assert_equal('g:CalendarLocalFetchEvents', t:cal_fetch_events_func)
+  assert_equal(fnamemodify(persistent, ':p'),
+    fnamemodify(local_provider.EventsPath(), ':p'))
+
+  CalendarWipe
+  delete(persistent)
+enddef
+
+def g:Test_local_provider_default_path_uses_data_directory()
+  local_provider.Configure('Work Notes')
+  assert_match('[/\\]vim-calendar[/\\]Work_Notes-events\.json$',
+    local_provider.EventsPath())
+enddef
+
+def g:Test_local_provider_creates_and_edits_events()
+  var persistent = tempname() .. '.json'
+  local_provider.Configure('Local', persistent)
+
+  assert_true(local_provider.ManageEvents({
+    action: 'create',
+    start: '2026-08-03 09:00',
+    end: '2026-08-03 10:00',
+  }))
+  assert_equal(local_provider.FORM_BUF_NAME, bufname('%'))
+  execute 'normal ?'
+  assert_equal(1, len(popup_list()))
+  assert_match('AllDay',
+    join(getbufline(winbufnr(popup_list()[0]), 1, '$'), "\n"))
+  popup_close(popup_list()[0])
+  setline(1, [
+    'Title: Created event',
+    'Start: 2026-08-03 09:00',
+    'End: 2026-08-03 10:00',
+    'Organizer: Alice',
+    'Location: Room A',
+    'AllDay: false',
+    'Body: First line',
+    'Second line',
+  ])
+  execute 'normal W'
+  assert_equal(-1, bufwinnr(local_provider.FORM_BUF_NAME))
+
+  var events = json_decode(readfile(persistent)->join("\n"))
+  assert_equal(1, len(events))
+  assert_equal('Created event', events[0].subject)
+  assert_equal('Alice', events[0].organizer)
+  assert_equal('Room A', events[0].location)
+  assert_false(events[0].allday)
+  assert_equal("First line\nSecond line", events[0].body)
+
+  assert_true(local_provider.ManageEvents({
+    action: 'edit',
+    id: events[0].id,
+  }))
+  assert_equal(local_provider.FORM_BUF_NAME, bufname('%'))
+  assert_equal('Title: Created event', getline(1))
+  setline(1, [
+    'Title: Updated event',
+    'Start: 2026-08-03 10:00',
+    'End: 2026-08-03 11:00',
+    'Organizer: Bob',
+    'Location: Room B',
+    'AllDay: true',
+    'Body: Updated body',
+  ])
+  deletebufline('%', 8, '$')
+  write
+
+  events = json_decode(readfile(persistent)->join("\n"))
+  assert_equal(1, len(events))
+  assert_equal('Updated event', events[0].subject)
+  assert_equal('2026-08-03T10:00', events[0].start)
+  assert_equal('Bob', events[0].organizer)
+  assert_equal('Room B', events[0].location)
+  assert_true(events[0].allday)
+  assert_equal('Updated body', events[0].body)
+
+  delete(persistent)
+enddef
+
+def g:Test_local_provider_form_keeps_originating_events_file()
+  var first = tempname() .. '.json'
+  var second = tempname() .. '.json'
+  local_provider.Configure('First', first)
+
+  assert_true(local_provider.ManageEvents({
+    action: 'create',
+    start: '2026-08-03 09:00',
+    end: '2026-08-03 10:00',
+  }))
+  local_provider.Configure('Second', second)
+  setline(1, [
+    'Title: First diary event',
+    'Start: 2026-08-03 09:00',
+    'End: 2026-08-03 10:00',
+    'Organizer: ',
+    'Location: Room A',
+    'AllDay: false',
+    'Body: ',
+  ])
+  write
+
+  assert_true(filereadable(first))
+  assert_false(filereadable(second))
+  var events = json_decode(readfile(first)->join("\n"))
+  assert_equal('First diary event', events[0].subject)
+
+  delete(first)
+  delete(second)
+enddef
+
+def g:Test_local_provider_form_normalizes_timestamp_seconds()
+  var persistent = tempname() .. '.json'
+  writefile([json_encode([{
+    id: 'with-seconds',
+    start: '2026-08-03T09:00:00',
+    end: '2026-08-03T10:00:00',
+    subject: 'Existing event',
+    location: '',
+  }])], persistent)
+  local_provider.Configure('Local', persistent)
+
+  assert_true(local_provider.ManageEvents({
+    action: 'edit',
+    id: 'with-seconds',
+  }))
+  assert_equal('Start: 2026-08-03 09:00', getline(2))
+  assert_equal('End: 2026-08-03 10:00', getline(3))
+  write
+
+  var events = json_decode(readfile(persistent)->join("\n"))
+  assert_equal('Existing event', events[0].subject)
+  delete(persistent)
+enddef
+
+def g:Test_local_provider_preserves_modified_form()
+  var persistent = tempname() .. '.json'
+  local_provider.Configure('Local', persistent)
+
+  assert_true(local_provider.ManageEvents({
+    action: 'create',
+    start: '2026-08-03 09:00',
+    end: '2026-08-03 10:00',
+  }))
+  setline(1, 'Title: Unsaved event')
+  assert_true(&modified)
+
+  assert_false(local_provider.ManageEvents({
+    action: 'create',
+    start: '2026-08-04 09:00',
+    end: '2026-08-04 10:00',
+  }))
+  assert_equal(local_provider.FORM_BUF_NAME, bufname('%'))
+  assert_equal('Title: Unsaved event', getline(1))
+
+  execute 'normal Q'
+  assert_equal(-1, bufwinnr(local_provider.FORM_BUF_NAME))
+  assert_false(filereadable(persistent))
+  delete(persistent)
+enddef
+
+def g:Test_local_provider_deletes_event()
+  var persistent = tempname() .. '.json'
+  writefile([json_encode([
+    {
+      id: 'keep',
+      start: '2026-08-03T09:00',
+      end: '2026-08-03T10:00',
+      subject: 'Keep',
+    },
+    {
+      id: 'delete',
+      start: '2026-08-04T09:00',
+      end: '2026-08-04T10:00',
+      subject: 'Delete',
+    },
+  ])], persistent)
+  local_provider.Configure('Local', persistent)
+
+  assert_true(local_provider.ManageEvents({
+    action: 'delete',
+    id: 'delete',
+  }))
+  var events = json_decode(readfile(persistent)->join("\n"))
+  assert_equal(['keep'], events->mapnew((_, event) => event.id))
+
+  delete(persistent)
+enddef
+
+def g:Test_local_provider_does_not_overwrite_invalid_json()
+  var persistent = tempname() .. '.json'
+  writefile(['{"not": "a list"}'], persistent)
+  local_provider.Configure('Local', persistent)
+
+  assert_true(local_provider.ManageEvents({
+    action: 'create',
+    start: '2026-08-03 09:00',
+    end: '2026-08-03 10:00',
+  }))
+  setline(1, 'Title: Must not be written')
+  execute 'normal W'
+
+  assert_equal(local_provider.FORM_BUF_NAME, bufname('%'))
+  assert_equal(['{"not": "a list"}'], readfile(persistent))
+
+  execute 'normal Q'
+  delete(persistent)
 enddef

@@ -13,6 +13,7 @@ endif
 g:loaded_calendar = true
 
 import autoload "../lib/frontend.vim"
+import autoload "../lib/local_provider.vim"
 import autoload "../lib/week_view.vim"
 
 command! -nargs=* CalendarToggle   frontend.CalendarToggle(<args>)
@@ -20,9 +21,18 @@ command! -nargs=0 CalendarRefresh  week_view.CalendarRefresh()
 command! -nargs=* CalendarSearch   frontend.Search(<f-args>)
 command! -nargs=0 CalendarWipe     frontend.CalendarWipe()
 command! -nargs=1 CalendarWeekNav  frontend.WeekViewNavigate(<q-args>)
+command! -nargs=1 CalendarDiaryCycle frontend.DiaryCycleNavigate(<q-args>)
 
 # Global wrapper required because &omnifunc must be a string name resolvable
 # in legacy Vimscript context.
 def g:CalendarAddressBookComplete(findstart: number, base: string): any
   return frontend.AddressBookComplete(findstart, base)
+enddef
+
+def g:CalendarLocalFetchEvents(request: dict<any>): string
+  return local_provider.FetchEvents(request)
+enddef
+
+def g:CalendarLocalManageEvents(request: dict<any>): bool
+  return local_provider.ManageEvents(request)
 enddef

@@ -28,9 +28,9 @@ var sound_enabled = true
 var popup_zindex  = 200             # incremented per popup so simultaneous ones stack visibly
 
 # Stable, day-scoped identity key for a meeting.
-# Uses entryid when available; falls back to start|subject.
+# Uses the provider id when available; falls back to start|subject.
 def MeetingKey(date_key: string, meeting: dict<any>): string
-  var eid = get(meeting, 'entryid', '')
+  var eid = get(meeting, 'id', '')
   return date_key .. '|' ..
     (!empty(eid) ? eid : get(meeting, 'start', '') .. '|' .. get(meeting, 'subject', ''))
 enddef

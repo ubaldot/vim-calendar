@@ -7,6 +7,7 @@ import autoload "./diary.vim"
 import autoload "./diary_search.vim"
 import autoload "./help_popup.vim"
 import autoload "./highlights.vim"
+import autoload "./local_provider.vim"
 import autoload "./reminder.vim"
 import autoload "./week_view.vim"
 
@@ -25,6 +26,20 @@ var state_base_year = 0
 var state_base_month = 0
 var state_blocks: list<dict<any>> = []
 var state_diary_rows: dict<string> = {}
+
+def ConfigureProvider(name: string, diary_config: dict<any>)
+  var fetch_func = get(diary_config, 'fetch_events', '')
+  var manage_func = get(diary_config, 'manage_events', '')
+  if empty(fetch_func) && empty(manage_func)
+    local_provider.Configure(name, get(diary_config, 'events_file', ''))
+    week_view.SetProviderFuncs(
+      'g:CalendarLocalFetchEvents',
+      'g:CalendarLocalManageEvents'
+    )
+    return
+  endif
+  week_view.SetProviderFuncs(fetch_func, manage_func)
+enddef
 
 # Initialize script-local runtime state from g:calendar_config.
 def InitVariables(): bool
@@ -60,7 +75,7 @@ def InitVariables(): bool
     cfg.week_display_type,
     cfg.week_cell_width
   )
-  week_view.SetActionFuncs(cfg.compose, cfg.edit)
+  ConfigureProvider(cfg_active_diary, cfg_diaries[cfg_active_diary])
   reminder.SetSoundEnabled(cfg.reminder_sound)
 
   return true
@@ -132,10 +147,10 @@ def CycleDiary(step: number): bool
   endif
   RenderView(state_base_year, state_base_month)
 
-  # Update week view: fetch if new diary has a connect hook, else clear it.
+  # Update week view: fetch if the new diary has a provider, else clear it.
   if bufnr(week_view.WEEK_BUF_NAME) > 0
-    if !empty(get(t:, 'cal_connect_func', ''))
-      week_view.CallConnectHook()
+    if !empty(get(t:, 'cal_fetch_events_func', ''))
+      week_view.FetchEvents()
     else
       var ty = str2nr(strftime('%Y'))
       var tm = str2nr(strftime('%m'))
@@ -145,6 +160,17 @@ def CycleDiary(step: number): bool
   endif
 
   return true
+enddef
+
+# Command-facing wrapper for diary cycling from the week-view buffer.
+# Restores focus to the calling window afterward, since CycleDiary's
+# RenderView() switches focus to the calendar window as a side effect.
+export def DiaryCycleNavigate(direction: string)
+  var save_win = win_getid()
+  CycleDiary(direction ==# 'next' ? 1 : -1)
+  if win_id2win(save_win) > 0
+    win_gotoid(save_win)
+  endif
 enddef
 
 # Build and display the view for (base_year, base_month).
@@ -208,8 +234,7 @@ def ActivateDiary(name: string): bool
   calendar_view.SetActiveDiary(cfg_active_diary, cfg_diary_path, cfg_diary_resolution)
   diary.Configure(cfg_diary_path, cfg_diary_resolution,
     cfg_address_book_path, cfg_auto_create_diary_dirs)
-  week_view.SetConnectFunc(get(d, 'connect', ''))
-  week_view.SetActionFuncs(get(d, 'compose', ''), get(d, 'edit', ''))
+  ConfigureProvider(name, d)
   return true
 enddef
 
@@ -240,7 +265,7 @@ def SwitchDiaryAtCursor(): bool
   var curp = getpos('.')
   RenderView(state_base_year, state_base_month)
   setpos('.', curp)
-  week_view.CallConnectHook()
+  week_view.FetchEvents()
   return true
 enddef
 
@@ -532,7 +557,7 @@ export def CalendarToggle(year: number = -1, month: number = -1)
   Show(year, month)
   var calendar_windows = win_findbuf(bufnr(cal_bufname))
   cal_tab_winid = empty(calendar_windows) ? -1 : calendar_windows[0]
-  week_view.CallConnectHook()
+  week_view.FetchEvents()
   week_view.RescheduleReminders()
 enddef
 
@@ -578,7 +603,8 @@ export def Show(year: number = -1, month: number = -1): string
   var tabnew_bufnr = bufnr('%')
   # Initialize tab-local state now that we're in the calendar tab.
   t:cal_curr_week_num = str2nr(strftime('%V'))
-  week_view.SetConnectFunc(get(cfg_diaries[cfg_active_diary], 'connect', ''))
+  var active = cfg_diaries[cfg_active_diary]
+  ConfigureProvider(cfg_active_diary, active)
   RenderView(y, m)
   var cal_winid = win_getid()
 

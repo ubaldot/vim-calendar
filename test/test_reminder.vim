@@ -6,7 +6,7 @@ const TODAY = strftime('%Y-%m-%d')
 
 # Meeting starting `offset_hours` from now (always beyond the 15-min window).
 # Returns {} when the meeting would fall past midnight — tests skip in that case.
-def g:FutureMeeting(offset_hours: number = 3, eid: string = 'EID1'): dict<any>
+def g:FutureMeeting(offset_hours: number = 3, event_id: string = 'ID1'): dict<any>
   var h = str2nr(strftime('%H')) + offset_hours
   if h >= 24
     return {}
@@ -17,7 +17,7 @@ def g:FutureMeeting(offset_hours: number = 3, eid: string = 'EID1'): dict<any>
     subject:   'Test Meeting',
     organizer: 'Org Person',
     location:  'Room A',
-    entryid:   eid,
+    id:        event_id,
   }
 enddef
 
@@ -25,7 +25,7 @@ enddef
 def g:PastMeeting(): dict<any>
   var h = max([0, str2nr(strftime('%H')) - 1])
   return {start: printf('%02d:00', h), end: printf('%02d:30', h),
-          subject: 'Past', entryid: 'PAST1'}
+          subject: 'Past', id: 'PAST1'}
 enddef
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ def g:Test_reminder_empty_meeting_list_no_timers()
 enddef
 
 def g:Test_reminder_meeting_missing_start_is_skipped()
-  reminder.Schedule(TODAY, [{subject: 'No time', entryid: 'X'}])
+  reminder.Schedule(TODAY, [{subject: 'No time', id: 'X'}])
   assert_equal(0, reminder.PendingCount())
 enddef
 
@@ -95,7 +95,7 @@ def g:Test_reminder_within_15min_window_fires_immediately()
     start:   printf('%02d:%02d', meet_min / 60, meet_min % 60),
     end:     printf('%02d:%02d', (meet_min + 30) / 60, (meet_min + 30) % 60),
     subject: 'Soon',
-    entryid: 'SOON1',
+    id: 'SOON1',
   }
   reminder.Schedule(TODAY, [m])
   assert_equal(2, reminder.PendingCount())
@@ -111,7 +111,7 @@ def g:Test_reminder_reschedule_does_not_repeat_fired_warning()
     start: printf('%02d:%02d', meet_min / 60, meet_min % 60),
     end: printf('%02d:%02d', (meet_min + 30) / 60, (meet_min + 30) % 60),
     subject: 'Deduplicated warning',
-    entryid: 'DEDUPE_WARNING',
+    id: 'DEDUPE_WARNING',
   }
 
   reminder.Schedule(TODAY, [meeting])

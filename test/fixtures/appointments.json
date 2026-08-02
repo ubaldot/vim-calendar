@@ -6,7 +6,7 @@
     "organizer": "Alice",
     "location":  "Room A",
     "body":      "Weekly sync",
-    "entryid":   "ENTRY-1"
+    "id":        "ENTRY-1"
   },
   {
     "start": "2026-07-27T09:30:00",
@@ -29,7 +29,8 @@
     "end":       "2026-07-29T00:00:00",
     "allday":    true,
     "subject":   "Sprint Planning",
-    "organizer": "Dave"
+    "organizer": "Dave",
+    "id":        "ALLDAY-1"
   },
   {
     "start":     "2026-07-27T00:00:00",

@@ -10,10 +10,10 @@ import autoload "../lib/reminder.vim"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-# Connect function used by tests: copies the fixture JSON to a temp file and
+# Fetch function used by tests: copies the fixture JSON to a temp file and
 # returns its path (which LoadAppointments will consume and delete).
-def g:TestWeekConnect(year: number, month: number, day: number): string
-  g:last_week_connect_args = [year, month, day]
+def g:TestFetchEvents(request: dict<any>): string
+  g:last_fetch_events_request = request
   var src = 'fixtures/appointments.json'
   if !filereadable(src)
     return ''
@@ -34,7 +34,7 @@ def ResetConfig()
     diaries_dict:  {
       TestDiary: {
         path:    tempname(),
-        connect: 'g:TestWeekConnect',
+        fetch_events: 'g:TestFetchEvents',
       }
     },
     active_diary: 'TestDiary',
@@ -70,9 +70,9 @@ def g:Test_week_view_t_variables_initialized()
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
   assert_true(has_key(t:, 'cal_curr_week_num'),
     't:cal_curr_week_num must be set in calendar tab')
-  assert_true(has_key(t:, 'cal_connect_func'),
-    't:cal_connect_func must be set in calendar tab')
-  assert_equal('g:TestWeekConnect', t:cal_connect_func)
+  assert_true(has_key(t:, 'cal_fetch_events_func'),
+    't:cal_fetch_events_func must be set in calendar tab')
+  assert_equal('g:TestFetchEvents', t:cal_fetch_events_func)
 enddef
 
 def g:Test_week_view_week_key_set_on_render()
@@ -101,9 +101,9 @@ def g:Test_week_view_load_appointments_renders_events()
   WaitForAssert(() => assert_equal(3, winnr('$')))
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
-  # Navigate to the fixture week and trigger the connect hook.
+  # Navigate to the fixture week and trigger the fetch hook.
   t:cal_week_key = '2026-07-27'
-  week_view.CallConnectHook(2026, 7, 27)
+  week_view.FetchEvents(2026, 7, 27)
 
   var lines = BufLines(week_view.WEEK_BUF_NAME)
   assert_true(HasLine(lines, 'Team Meeting'),
@@ -119,7 +119,7 @@ def g:Test_week_view_overlapping_events_both_rendered()
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
   t:cal_week_key = '2026-07-27'
-  week_view.CallConnectHook(2026, 7, 27)
+  week_view.FetchEvents(2026, 7, 27)
 
   # Mon Jul 27 has Team Meeting 09:00 and Overlapping Review 09:30 — both must appear.
   var lines = BufLines(week_view.WEEK_BUF_NAME)
@@ -133,7 +133,7 @@ def g:Test_week_view_allday_events_in_header()
   WaitForAssert(() => assert_equal(3, winnr('$')))
 
   t:cal_week_key = '2026-07-27'
-  week_view.CallConnectHook(2026, 7, 27)
+  week_view.FetchEvents(2026, 7, 27)
 
   var hdr_lines = BufLines(week_view.WEEK_HDR_BUF_NAME)
   assert_true(HasLine(hdr_lines, 'Sprint Planning') || HasLine(hdr_lines, 'Company Offsite'),
@@ -169,19 +169,23 @@ def g:Test_today_key_resets_after_t_navigation()
   feedkeys('t', 'x')   # triggers Action('Today') via buffer keymap
 
   # Week key must now reflect today's week.
-  var today_key_prefix = strftime('%Y-%m-')
-  assert_match($'^{today_key_prefix}', t:cal_week_key)
+  var monday = backend.WeekDays(
+    str2nr(strftime('%Y')),
+    str2nr(strftime('%m')),
+    str2nr(strftime('%d')))[0]
+  assert_equal(printf('%04d-%02d-%02d',
+    monday.year, monday.month, monday.day), t:cal_week_key)
   assert_equal(str2nr(strftime('%V')), t:cal_curr_week_num)
 enddef
 
-def g:Test_get_appointment_at_cursor()
+def g:Test_get_event_at_cursor()
   ResetConfig()
   CalendarToggle
   WaitForAssert(() => assert_equal(3, winnr('$')))
 
   # Load fixture appointments for week 2026-07-27.
   t:cal_week_key = '2026-07-27'
-  week_view.CallConnectHook(2026, 7, 27)
+  week_view.FetchEvents(2026, 7, 27)
 
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
@@ -192,29 +196,29 @@ def g:Test_get_appointment_at_cursor()
   #   slot 1 subject  → line 30  (Overlapping Review)
   # Col 15 is safely within the Monday cell (cols 10-25, WEEK_TIME_COL=8, WEEK_DAY_COL=16).
   cursor(28, 15)
-  var appt = week_view.GetAppointmentAtCursor()
+  var appt = week_view.GetEventAtCursor()
   assert_equal('Team Meeting', get(appt, 'subject', ''),
     'Line 28 col 15 should resolve to Team Meeting')
 
   cursor(30, 15)
-  appt = week_view.GetAppointmentAtCursor()
+  appt = week_view.GetEventAtCursor()
   assert_equal('Overlapping Review', get(appt, 'subject', ''),
     'Line 30 col 15 should resolve to Overlapping Review')
 
   # Organizer line of slot 0 must also resolve (same appt_row).
   cursor(29, 15)
-  appt = week_view.GetAppointmentAtCursor()
+  appt = week_view.GetEventAtCursor()
   assert_equal('Team Meeting', get(appt, 'subject', ''),
     'Organizer line (29) should resolve to same appointment as subject line')
 
   # Separator lines and empty-slot rows must return {}.
   cursor(1, 15)
-  assert_equal({}, week_view.GetAppointmentAtCursor(),
+  assert_equal({}, week_view.GetEventAtCursor(),
     'Hour-0 slot row (no events) should return {}')
 
   # Time column (col < WEEK_TIME_COL + 2) must return {}.
   cursor(28, 3)
-  assert_equal({}, week_view.GetAppointmentAtCursor(),
+  assert_equal({}, week_view.GetEventAtCursor(),
     'Cursor on time column should return {}')
 enddef
 
@@ -240,38 +244,55 @@ def g:Test_get_creation_slot_at_cursor()
     'The time-label column is not an appointment slot')
 enddef
 
-def g:Test_native_appointment_hooks()
-  def g:TestComposeAppointment(start: string, end: string): bool
-    g:compose_appointment_args = [start, end]
-    return true
-  enddef
-  def g:TestEditAppointment(entryid: string): bool
-    g:edit_appointment_entryid = entryid
+def g:Test_manage_events_hook_requests()
+  def g:TestManageEvents(request: dict<any>): bool
+    g:manage_events_request = request
     return true
   enddef
 
   ResetConfig()
-  g:calendar_config.diaries_dict.TestDiary.compose = 'g:TestComposeAppointment'
-  g:calendar_config.diaries_dict.TestDiary.edit = 'g:TestEditAppointment'
+  g:calendar_config.diaries_dict.TestDiary.manage_events = 'g:TestManageEvents'
   CalendarToggle
   WaitForAssert(() => assert_equal(3, winnr('$')))
   week_view.NavigateWeekView(2026, 7, 27)
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
   cursor(25, 15)
-  execute 'normal n'
-  assert_equal(
-    ['2026-07-27 08:00', '2026-07-27 09:00'],
-    g:compose_appointment_args)
+  execute 'normal m'
+  assert_equal({
+    action: 'create',
+    start: '2026-07-27 08:00',
+    end: '2026-07-27 09:00',
+  }, g:manage_events_request)
 
   t:cal_week_key = '2026-07-27'
-  week_view.CallConnectHook(2026, 7, 27)
+  week_view.FetchEvents(2026, 7, 27)
   cursor(28, 15)
-  execute 'normal e'
-  assert_equal('ENTRY-1', g:edit_appointment_entryid)
+  execute 'normal m'
+  assert_equal({action: 'edit', id: 'ENTRY-1'}, g:manage_events_request)
 
-  unlet g:compose_appointment_args
-  unlet g:edit_appointment_entryid
+  execute 'normal d'
+  assert_equal({
+    action: 'delete',
+    id: 'ENTRY-1',
+    start: '2026-07-27T09:00:00',
+  }, g:manage_events_request)
+
+  execute 'normal a'
+  assert_equal({
+    action: 'accept',
+    id: 'ENTRY-1',
+    start: '2026-07-27T09:00:00',
+  }, g:manage_events_request)
+
+  execute 'normal v'
+  assert_equal({
+    action: 'tentative',
+    id: 'ENTRY-1',
+    start: '2026-07-27T09:00:00',
+  }, g:manage_events_request)
+
+  unlet g:manage_events_request
 enddef
 
 def g:Test_week_view_help_mapping()
@@ -285,6 +306,28 @@ def g:Test_week_view_help_mapping()
   assert_match('Week view key bindings',
     join(getbufline(winbufnr(popup_list()[0]), 1, '$'), "\n"))
   popup_close(popup_list()[0])
+enddef
+
+def g:Test_week_view_diary_cycle_tab_keys()
+  ResetConfig()
+  g:calendar_config.diaries_dict = {
+    Alpha: {path: tempname(), fetch_events: 'g:TestFetchEvents'},
+    Beta: {path: tempname(), fetch_events: 'g:TestFetchEvents'},
+  }
+  g:calendar_config.active_diary = 'Alpha'
+
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  feedkeys("\<Tab>", 'xt')
+  WaitForAssert(() => assert_equal('Beta', g:calendar_config.active_diary))
+  assert_equal(week_view.WEEK_BUF_NAME, bufname('%'),
+    'Cycling diaries from the week view must not move focus away from it')
+
+  feedkeys("\<S-Tab>", 'xt')
+  WaitForAssert(() => assert_equal('Alpha', g:calendar_config.active_diary))
+  assert_equal(week_view.WEEK_BUF_NAME, bufname('%'))
 enddef
 
 # ── Configure / display-type / cell-width tests ──────────────────────────────
@@ -307,7 +350,7 @@ def g:Test_configure_work_display_type()
   CalendarToggle
   WaitForAssert(() => assert_equal(3, winnr('$')))
   t:cal_week_key = '2026-07-27'
-  week_view.CallConnectHook(2026, 7, 27)
+  week_view.FetchEvents(2026, 7, 27)
 
   var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
 
@@ -354,7 +397,7 @@ def g:Test_us_display_uses_chronological_sunday_week()
   WaitForAssert(() => assert_equal(3, winnr('$')))
 
   week_view.NavigateWeekView(2026, 7, 27)
-  week_view.CallConnectHook(2026, 7, 27)
+  week_view.FetchEvents(2026, 7, 27)
 
   var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
   var label_lines = filter(copy(hdr), 'v:val =~# "Sunday"')
@@ -369,19 +412,45 @@ def g:Test_us_display_uses_chronological_sunday_week()
     'US cache keys must use the displayed Sunday')
 enddef
 
-def g:Test_connect_hook_uses_visible_week()
+def g:Test_fetch_events_hook_uses_visible_range()
   ResetConfig()
   CalendarToggle 2020, 2
   WaitForAssert(() => assert_equal(3, winnr('$')))
 
-  var args = g:last_week_connect_args
-  var days = backend.WeekDays(args[0], args[1], args[2])
-  var expected_key = printf('%04d-%02d-%02d',
-    days[0].year, days[0].month, days[0].day)
-  assert_equal(expected_key, t:cal_week_key,
-    'Hook results must be cached under the week passed to the hook')
-  assert_equal(2020, args[0],
-    'Opening a historical month must fetch appointments for that year')
+  assert_equal({
+    start: '2020-01-27',
+    end: '2020-02-03',
+  }, g:last_fetch_events_request)
+  assert_equal('2020-01-27', t:cal_week_key,
+    'Hook results must be cached under the requested range start')
+enddef
+
+def g:Test_fetch_events_ranges_follow_display_layout()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+
+  week_view.Configure('us', 16)
+  week_view.SetProviderFuncs('g:TestFetchEvents', '')
+  week_view.FetchEvents(2026, 8, 5)
+  assert_equal({
+    start: '2026-08-02',
+    end: '2026-08-09',
+  }, g:last_fetch_events_request)
+
+  week_view.Configure('work', 16)
+  week_view.FetchEvents(2026, 8, 5)
+  assert_equal({
+    start: '2026-08-03',
+    end: '2026-08-08',
+  }, g:last_fetch_events_request)
+
+  week_view.Configure('eu', 16)
+  week_view.FetchEvents(2026, 12, 31)
+  assert_equal({
+    start: '2026-12-28',
+    end: '2027-01-04',
+  }, g:last_fetch_events_request)
 enddef
 
 def g:Test_configure_invalid_type_defaults_to_eu()
@@ -433,12 +502,19 @@ def g:Test_configure_custom_cell_width()
 enddef
 
 def g:Test_allday_events_work_mode()
+  def g:TestAllDayManageEvents(request: dict<any>): bool
+    g:allday_manage_request = request
+    return true
+  enddef
+
   ResetConfig()
   g:calendar_config.week_display_type = 'work'
+  g:calendar_config.diaries_dict.TestDiary.manage_events =
+    'g:TestAllDayManageEvents'
   CalendarToggle
   WaitForAssert(() => assert_equal(3, winnr('$')))
   t:cal_week_key = '2026-07-27'
-  week_view.CallConnectHook(2026, 7, 27)
+  week_view.FetchEvents(2026, 7, 27)
 
   var hdr = BufLines(week_view.WEEK_HDR_BUF_NAME)
   # Sprint Planning (Tue) and Company Offsite (Mon–Wed) both fall within Mon–Fri.
@@ -447,6 +523,17 @@ def g:Test_allday_events_work_mode()
   # No weekend day labels in work mode.
   assert_false(HasLine(hdr, 'Saturday'), 'Saturday must not appear in work-mode header')
   assert_false(HasLine(hdr, 'Sunday'),   'Sunday must not appear in work-mode header')
+
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_HDR_BUF_NAME))[0])
+  cursor(search('Sprint Planning'), 1)
+  assert_equal('ALLDAY-1', get(week_view.GetEventAtCursor(), 'id', ''))
+  execute 'normal d'
+  assert_equal({
+    action: 'delete',
+    id: 'ALLDAY-1',
+    start: '2026-07-28T00:00:00',
+  }, g:allday_manage_request)
+  unlet g:allday_manage_request
 enddef
 
 def g:Test_calendar_wipe()
@@ -541,7 +628,7 @@ def g:Test_reschedule_reminders_schedules_todays_meetings()
   WaitForAssert(() => assert_equal(3, winnr('$')))
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
-  # Inject a future meeting directly into the week cache via the connect hook,
+  # Inject a future meeting directly into the week cache via the fetch hook,
   # but point cal_week_key at today's week so RescheduleReminders finds it.
   var ty = str2nr(strftime('%Y'))
   var tm = str2nr(strftime('%m'))
@@ -561,27 +648,26 @@ def g:Test_reschedule_reminders_schedules_todays_meetings()
     organizer: 'Test',
     location:  '',
     body:      '',
-    entryid:   'FUTURE_EID',
+    id:        'FUTURE_EID',
     allday:    false,
   }])
   var tmp = tempname() .. '.json'
   writefile([appt_json], tmp)
-  t:cal_connect_func = 'g:TestWeekConnect'
+  t:cal_fetch_events_func = 'g:TestFetchEvents'
   t:cal_week_key = printf('%04d-%02d-%02d', mon.year, mon.month, mon.day)
-  # Use LoadAppointments indirectly via the connect hook by overwriting the fixture.
+  # Use LoadAppointments indirectly via the fetch hook by overwriting the fixture.
   # Simpler: call RescheduleReminders after manually populating the cache via
-  # the public LoadAppointments path (CallConnectHook writes the fixture file).
+  # the public LoadAppointments path (FetchEvents reads the fixture file).
   # Direct injection: write our JSON to the temp path and call the hook.
-  var save_connect = get(t:, 'cal_connect_func', '')
-  week_view.SetConnectFunc('g:TestWeekConnect')
+  week_view.SetProviderFuncs('g:TestFetchEvents', '')
 
   # Produce a temp file with our single-meeting JSON and read it as the hook output.
   writefile([appt_json], tmp)
-  def g:TmpConnect(_y: number, _m: number, _d: number): string
+  def g:TmpFetchEvents(_request: dict<any>): string
     return tmp
   enddef
-  week_view.SetConnectFunc('g:TmpConnect')
-  week_view.CallConnectHook(ty, tm, td)
+  week_view.SetProviderFuncs('g:TmpFetchEvents', '')
+  week_view.FetchEvents(ty, tm, td)
   week_view.RescheduleReminders()
 
   assert_true(reminder.PendingCount() >= 1,
@@ -599,11 +685,11 @@ def g:Test_reschedule_reminders_cancels_stale_timers()
     end: printf('%02d:%02d', (future_min + 30) / 60,
       (future_min + 30) % 60),
     subject: 'Removed Meeting',
-    entryid: 'REMOVED_EID',
+    id: 'REMOVED_EID',
   }])
   assert_equal(2, reminder.PendingCount())
 
-  week_view.SetConnectFunc('g:TestWeekConnect')
+  week_view.SetProviderFuncs('g:TestFetchEvents', '')
   week_view.RescheduleReminders()
   assert_equal(0, reminder.PendingCount(),
     'Refreshing to an empty cache must cancel obsolete reminders')

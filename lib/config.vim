@@ -35,8 +35,8 @@ export def Load(): dict<any>
   var active = diaries[active_diary]
   var search_engine = Choice(get(raw, 'search_grep', 'internal'),
     ['internal', 'external'], 'internal')
-  if !empty(get(raw, 'connect', {}))
-    echomsg "[Calendar] 'connect' at top level is ignored; set it per-diary in diaries_dict."
+  if !empty(get(raw, 'fetch_events', {}))
+    echomsg "[Calendar] 'fetch_events' at top level is ignored; set it per-diary in diaries_dict."
   endif
 
   return {
@@ -57,9 +57,9 @@ export def Load(): dict<any>
     diary_path: get(active, 'path', '~/my_diary'),
     diary_resolution: get(active, 'resolution', 'month'),
     address_book_path: get(active, 'address_book', ''),
-    connect: get(active, 'connect', ''),
-    compose: get(active, 'compose', ''),
-    edit: get(active, 'edit', ''),
+    events_file: get(active, 'events_file', ''),
+    fetch_events: get(active, 'fetch_events', ''),
+    manage_events: get(active, 'manage_events', ''),
     week_display_type: Choice(get(raw, 'week_display_type', 'eu'),
       ['eu', 'us', 'work'], 'eu'),
     week_cell_width: max([8, get(raw, 'week_cell_width', 16)]),

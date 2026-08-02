@@ -7,19 +7,20 @@ Yasuhiro Matsumoto <mattn.jp@gmail.com>
 ==============================================================================
 CONTENTS                                            *calendar-contents*
 
-    1. Introduction ......... |calendar-introduction|
-    2. Commands ............. |calendar-commands|
-    3. Mappings ............. |calendar-mappings|
-    4. Configuration ........ |calendar-configuration|
-    5. Week view ............ |calendar-week-view|
-    6. Address book ......... |calendar-address-book|
-    7. Autocommands ......... |calendar-autocmds|
-    8. License .............. |calendar-license|
+    1. Introduction .............. |calendar-introduction|
+    2. Commands .................. |calendar-commands|
+    3. Mappings .................. |calendar-mappings|
+    4. Configuration ............. |calendar-configuration|
+    5. Connect to ext calendars .. |calendar-connect-to-ext-calendars|
+    6. Address book .............. |calendar-address-book|
+    7. Autocommands .............. |calendar-autocmds|
+    8. Code structure ............ |calendar-code-structure|
+    8. License ................... |calendar-license|
 
 ==============================================================================
 INTRODUCTION                                    *calendar*
 
-This script creates a calendar window in Vim.
+This plugin creates a calendar window in Vim.
 
 It is a forked and refactored version for Vim 9.0 of vim-calendar originally
 written by Yasuhiro Matsumoto <mattn.jp@gmail.com>
@@ -27,12 +28,10 @@ written by Yasuhiro Matsumoto <mattn.jp@gmail.com>
 Key features:
 - Split-window calendar display
 - ISO (EU), US, and work-week (Mon–Fri) layouts
-- Optional week-number column
-- Multiple configurable diary books (per-diary path, resolution, connect hook)
-- Diary pages opened from calendar days
-- Week view panel with Outlook/calendar appointment integration
+- Week view panel with calendar events integration
+- Multiple configurable diary books
 - Address-book omni-completion in diary files
-- Configurable holidays (custom highlight group)
+- Configurable holidays
 
 Requires Vim 9.0 or later.
 
@@ -50,12 +49,9 @@ vim-calendar makes the following commands available:
                     - one argument: specific year, current month
                     - two arguments: specific year and month
 
-                    Recommended global mapping in your vimrc: >
-                        nnoremap W <Cmd>CalendarToggle<CR>
-<
                                                 *calendar-:CalendarRefresh*
 :CalendarRefresh    Re-fetch appointments for the currently visible week by
-                    calling the active diary's connect hook.  Useful after
+                    calling the active diary's fetch_events hook. Useful after
                     external data changes (e.g. a new meeting invite arrived).
 
                                             *calendar-:CalendarSearch*
@@ -67,22 +63,22 @@ vim-calendar makes the following commands available:
 :CalendarWipe       Close the calendar tab (if open) and wipe all calendar-
                     related buffers: __Calendar__, __WeekView__,
                     __WeekHeader__, and __Appointment__.  Use this when you
-                    want a completely clean slate.
+                    want a completely clean state.
 
 ==============================================================================
 MAPPINGS                                        *calendar-mappings*
 
 Calendar pane ~
 
-    h / j / k / l      Move cursor
+    hjkl and arrows     Move cursor
     |<C-Up>|              Previous month
     |<C-Down>|            Next month
     |<C-Left>|            Previous year
     |<C-Right>|           Next year
     t                   Go to today
-    |<Tab>| / |<S-Tab>|   Next / previous diary
+    |<Tab>| / |<S-Tab>|     Next / previous diary
     |<CR>|                Navigate week view to day under cursor
-    |<C-CR>| / |<S-CR>|   Close the calendar tab and open the diary entry for
+    |<C-CR>| / |<S-CR>|     Close the calendar tab and open the diary entry for
                         the day (or month) under the cursor directly
     q                   Close
     ?                   Show key-binding help popup
@@ -96,13 +92,28 @@ Week view (right pane) ~
     |<CR>|                Open the full appointment body in a horizontal split
                         below the week view.  The split buffer shows the
                         complete body including any boilerplate.
-    n                   Compose a one-hour appointment at the date and hour
-                        under the cursor in the configured provider.
-    e                   Edit the appointment under the cursor. Providers may
-                        restrict editing to the organizer.
+    m                   Modify, i.e. create new event or edit the event under
+                        the cursor.
+                        Providers may restrict editing to the organizer.
+    d                   Delete the event. Providers may decline or cancel a
+                        meeting as part of removing it.
+    a                   Accept a meeting invitation
+    v                   Respond tentatively to a meeting invitation
+    |<Tab>| / |<S-Tab>|     Next / previous diary
+    |<C-Left>| / |<C-Right>| Previous / next week
+    t                   Go to the current week
+    |<F5>|                Refresh appointments for the visible week
     ?                   Show week-view key bindings
     q / |<Esc>|           Close the appointment body split
 
+Local event form ~
+
+    W                   Save, create, or update the event
+    Q                   Discard the form without saving
+    ?                   Show the supported event fields
+    |:w|                  Save, create, or update the event
+
+==============================================================================
 CONFIGURATION                                        *calendar-configuration*
 
                                                 *g:calendar_config*
@@ -122,9 +133,8 @@ All options live in a single dict: >
         My_Diary: {
           path:         '~/my_diary',
           resolution:   'day',
-          connect:      'g:MyCalendarFetch',
-          compose:      'g:MyCalendarCompose',
-          edit:         'g:MyCalendarEdit',
+          fetch_events:  'g:MyCalendarFetchEvents',
+          manage_events: 'g:MyCalendarManageEvents',
           address_book: '/tmp/address_book.json',
         },
       },
@@ -178,12 +188,12 @@ Top-level keys ~
 
               diaries_dict      Dict of diary definitions.  Each entry: >
                                     {
-                                      path:         string,   " required
-                                      resolution:   string,   " 'day'|'month'
-                                      connect:      string,   " optional
-                                      compose:      string,   " optional
-                                      edit:         string,   " optional
-                                      address_book: string,   " optional
+                                      path:         string,   # required
+                                      resolution:   string,   # 'day'|'month'
+                                      fetch_events:  string,  # optional
+                                      manage_events: string,  # optional
+                                      events_file:   string,  # optional
+                                      address_book: string,   # optional
                                     }
 <
                                 path        Root directory for diary files.
@@ -194,17 +204,21 @@ Top-level keys ~
                                             'month' — one file per month,
                                               e.g. 2026/January.md
 
-                                connect     Name of a global function that
-                                            fetches calendar appointments.
+                                fetch_events
+                                            Name of a global function that
+                                            fetches calendar events.
                                             See |calendar-week-view|.
 
-                                compose     Name of a global function accepting
-                                            start and end strings. Used by `n`
-                                            to open the provider's editor.
+                                manage_events
+                                            Name of a global function accepting
+                                            a create/edit request dict. Used by
+                                            `m` in the week view.
 
-                                edit        Name of a global function accepting
-                                            an appointment `entryid`. Used by
-                                            `e` in the week view.
+                                events_file Path for the built-in local JSON
+                                            provider. Used when both provider
+                                            hooks are omitted. If absent,
+                                            defaults under the platform data
+                                            directory.
 
                                 address_book
                                             Path to a JSON address-book file
@@ -215,37 +229,62 @@ Top-level keys ~
               active_diary      Key from diaries_dict to use on startup.
                                 Default: first key in diaries_dict
 
+
 ==============================================================================
-WEEK VIEW                                       *calendar-week-view*
+CONNECT TO EXTERNAL CALENDARS               *calendar-connect-to-ext-calendars*
 
-When a diary has a `connect` hook defined, a week view panel appears to the
-right of the calendar.  It shows a scrollable 24-hour grid for the current
-week with appointment subjects and organizer names.  All-day events appear
-as banner rows above the grid.
+vim-calendar provides a week-view pane in the right-hand window of the
+calendar tab. It shows a scrollable 24-hour grid with event subjects and
+organizer names. Events can come from a local JSON file or be populated
+dynamically through provider hooks.
 
-The connect hook ~
+Built-in local JSON provider ~
 
-The `connect` value is the name of a *global* Vim function (string).
-vim-calendar calls it whenever a new week needs data: >
+When both provider hooks are omitted, vim-calendar stores events in a local
+JSON file: >
 
-    def g:MyCalendarFetch(year: number, month: number, day: number): string
-      # Fetch appointments for the visible week that contains (year, month, day).
-      # Write them to a JSON file and return the file path.
-      # Return '' on failure.
-      var tmp = tempname() .. '.json'
-      # ... write appointments to tmp ...
-      return tmp
-    enddef
+    g:calendar_config = {
+      diaries_dict: {
+        Local: {
+          path:          '~/calendar-diary',
+          resolution:    'day',
+          events_file:   '~/calendar-diary/events.json',
+        },
+      },
+      active_diary: 'Local',
+    }
 <
-The hook receives any day in the target week; use it to compute the Monday
-of that week if your data source requires exact boundaries.
+Open |:CalendarToggle|, move to an hour cell, and press `m` to create an
+event. A split opens below with these editable fields:
 
-The returned path is read once by vim-calendar and then deleted.  Use a temp
-file (|tempname()|) or a fixed path (e.g. a cached file in %TEMP%).
+    Title       Required
+    Start       Required; YYYY-MM-DD HH:MM
+    End         Required; YYYY-MM-DD HH:MM
+    Organizer   Optional
+    Location    Optional
+    AllDay      true or false
+    Body        Optional; may continue on following lines
 
-Appointments JSON format ~
+Press `W` (or use |:w|) to persist the event, `Q` to discard it, or `?` to
+show field help. Event IDs are generated and preserved internally. Move onto
+an existing event and press `m` to edit it using the same prefilled form. Use
+|<F5>| after external file changes.
 
-The JSON file must be a list of appointment objects: >
+`events_file` is optional. Defaults:
+
+    Windows              %LOCALAPPDATA%\vim-calendar
+    Unix with XDG        $XDG_DATA_HOME/vim-calendar
+    Other Unix systems   ~/.local/share/vim-calendar
+
+The filename is `<diary-name>-events.json`; unsafe filename characters are
+replaced with underscores.
+
+Appointment key bindings are documented under |calendar-mappings|.
+
+Events JSON format ~
+
+The JSON file containing the Calendar events must be a list of appointment
+objects: >
 
     [
       {
@@ -255,7 +294,7 @@ The JSON file must be a list of appointment objects: >
         "organizer": "Alice Smith",
         "location":  "Room A",
         "body":      "Agenda:\n1. Sprint review\n2. Planning",
-        "entryid":   "<optional opaque id for future full-body fetch>"
+        "id":        "<optional opaque provider event id>"
       },
       {
         "start":     "2026-07-28T00:00:00",
@@ -267,39 +306,177 @@ The JSON file must be a list of appointment objects: >
     ]
 <
 Required fields: `start`, `end`, `subject`
-Optional fields: `organizer`, `location`, `body`, `entryid`, `allday`
+Optional fields: `organizer`, `location`, `body`, `id`, `allday`
+
 
 All-day events ~
-    Set `"allday": true`.  The `end` date is exclusive (Outlook convention):
+    Set `"allday": true`.  The `end` date is exclusive:
     an event spanning Mon–Wed has `"end": "2026-07-30T00:00:00"`.
     All-day events appear as banner rows above the day-label header.
 
-Outlook integration example (Windows / PowerShell) ~
 
-A typical `connect` function invokes a PowerShell script that queries the
-Outlook COM object and writes the JSON.  The fetch is synchronous so the
-week view populates immediately: >
+                                                      *calendar-hooks*
+Connect to external calendar providers ~
 
-    def g:OutlookCalendarFetch(
-        year: number, month: number, day: number): string
-      var out = $'{$TEMP}\calendar_week.json'
-      var script = expand('~/vimfiles/.../fetch_calendar.ps1')
-      var cmd = $'powershell -NoProfile -File "{script}"'
-             .. $' -Year {year} -Month {month} -Day {day}'
-             .. $' -OutputFile "{out}"'
-      system(cmd)
-      return filereadable(out) ? out : ''
+The week view can also be populated through the two hook functions
+fetch_events and manage_events hooks. This is handy when we want the calendar
+to be connected to a Google calendar, to Outlook or to an Apple calendar.
+
+                                            *calendar-fetch_events-hook*
+The fetch_events hook ~
+
+The `fetch_events` value is the name of a *global* Vim function (string).
+vim-calendar calls it whenever a displayed date range needs data: >
+
+    def g:MyCalendarFetchEvents(request: dict<any>): string
+      # request.start is inclusive and request.end is exclusive.
+      # Both use YYYY-MM-DD.
+      # Write them to a JSON file and return the file path.
+      # Return '' on failure.
+      var tmp = tempname() .. '.json'
+      # ... write appointments to tmp ...
+      return tmp
     enddef
 <
-The PowerShell script should:
-1. Compute the Monday of the requested week
-2. Iterate `Application.GetNamespace("MAPI")` calendar items
-3. Filter by the week boundaries
-4. Write UTF-8 without BOM (`[IO.File]::WriteAllText`) — NOT `Set-Content`
-   (`Set-Content -Encoding UTF8` in PowerShell 5.1 writes a BOM that
-   confuses |json_decode()|)
+The request uses explicit boundaries, for example: >
 
-Appointment key bindings are documented under |calendar-mappings|.
+    {start: '2026-07-27', end: '2026-08-03'}
+<
+The range follows the configured EU, US, or work-week layout. It may cross
+month or year boundaries.
+
+The returned path is read once by vim-calendar and then deleted.  Use a temp
+file (|tempname()|) or a fixed path (e.g. a cached file in %TEMP%).
+The returned file will be deleted after the week view is rendered in the week
+view window.
+If you are not using any remote calendar, i.e. if the calendar events are
+defined in a locally stored file, you can just return a copy of such a file,
+for example:
+>
+  ...
+  var tmp = tempname() .. '.json'
+  writefile(readfile('my_local_calendar_events.json'), tmp) # Create a copy
+  return tmp # tmp will be deleted after rendering
+  ...
+<
+                                            *calendar-manage_events-hook*
+The manage_events hook ~
+
+The `manage_events` function receives one request dict: >
+
+    {action: 'create', start: '2026-07-27 09:00',
+                       end: '2026-07-27 10:00'}
+    {action: 'edit', id: '<provider-specific event id>'}
+    {action: 'delete', id: '<provider-specific event id>',
+                       start: '2026-07-27T09:00:00'}
+    {action: 'accept', id: '<provider-specific event id>',
+                       start: '2026-07-27T09:00:00'}
+    {action: 'tentative', id: '<provider-specific event id>',
+                          start: '2026-07-27T09:00:00'}
+<
+`start` identifies the selected occurrence when a provider exposes recurring
+events. The provider may open a native editor, update a local file, send a
+meeting response, or call an API. Providers that do not support an action
+should return |false|.
+
+External provider script hooks ~
+
+Google Calendar, Apple Calendar, iCloud, and other services normally require
+authentication and provider-specific API logic. Keep that logic in an external
+script and use thin Vim hooks. The following can be copied into a Vim9 vimrc: >
+
+    # User must write their own .ps1 and/or .sh script to connect to the
+    # external calendar
+    const CALENDAR_PROVIDER_SCRIPT = has('win32')
+      ? expand('~/calendar-provider/calendar_provider.ps1')
+      : expand('~/calendar-provider/calendar_provider.sh')
+
+    def RunCalendarProvider(args: list<string>): bool
+      var cmd = has('win32')
+        ? (executable('pwsh') ? 'pwsh' : 'powershell')
+            .. ' -NoProfile -File '
+            .. shellescape(CALENDAR_PROVIDER_SCRIPT, true)
+        : shellescape(CALENDAR_PROVIDER_SCRIPT, true)
+      for arg in args
+        cmd ..= ' ' .. shellescape(arg, true)
+      endfor
+      var message = system(cmd)
+      if v:shell_error != 0
+        echomsg $'[Calendar provider] {message}'
+        return false
+      endif
+      return true
+    enddef
+
+    def g:ExternalCalendarFetchEvents(request: dict<any>): string
+      var snapshot = tempname() .. '.json'
+      if !RunCalendarProvider([
+          'fetch', request.start, request.end, snapshot])
+        delete(snapshot)
+        return ''
+      endif
+      return snapshot
+    enddef
+
+    def g:ExternalCalendarManageEvents(request: dict<any>): bool
+      if request.action ==# 'create'
+        return RunCalendarProvider([
+          'create', request.start, request.end])
+      elseif request.action ==# 'edit'
+        return RunCalendarProvider(['edit', request.id])
+      elseif index(['delete', 'accept', 'tentative'], request.action) >= 0
+        return RunCalendarProvider([
+          request.action, request.id, get(request, 'start', '')])
+      endif
+      echomsg $'[Calendar provider] Unknown action: {request.action}'
+      return false
+    enddef
+<
+Configure the diary with: >
+
+    diaries_dict: {
+      Personal: {
+        path: '~/diary/personal',
+        fetch_events:  'g:ExternalCalendarFetchEvents',
+        manage_events: 'g:ExternalCalendarManageEvents',
+      },
+    }
+<
+The external script accepts these arguments:
+
+    fetch START END OUTPUT
+        Fetch events overlapping the start-inclusive, end-exclusive date
+        range and write normalized JSON to OUTPUT.
+
+    create START END
+        Open or create an event with the supplied local date and time.
+
+    edit ID
+        Open or edit the provider event identified by ID.
+
+    delete|accept|tentative ID START
+        Remove or respond to the selected provider event. START identifies a
+        recurring occurrence and may be empty for non-recurring providers.
+
+Exit with status zero on success and non-zero on failure. `fetch` must write
+UTF-8 JSON without a BOM. Its output is a disposable snapshot that
+vim-calendar deletes after reading; never use the persistent provider database
+as OUTPUT.
+
+For Google Calendar, the script can use the Google Calendar API or an
+authenticated tool such as gcalcli. For Apple, a macOS script can use EventKit
+or osascript; iCloud calendars can instead be accessed through a CalDAV
+client. OAuth tokens, app-specific passwords, and other credentials must
+remain outside Vim and should be read from the operating system's credential
+store or the external tool's protected configuration.
+
+Provider implementations ~
+
+Provider hooks may read and write local files, invoke external commands, open
+native calendar editors, or call public APIs. vim-calendar only defines the
+request and JSON contracts; provider-specific behavior belongs outside this
+plugin. The plugin vim-outlook supplies an Outlook implementation.
+
 
 ==============================================================================
 ADDRESS BOOK                                    *calendar-address-book*
@@ -352,8 +529,38 @@ AUTOCOMMANDS                                   *calendar-autocmds*
 
 The plugin fires one event just before rendering the calendar view: >
 
-    autocmd User CalendarBeforeShow  " your code here
+    autocmd User CalendarBeforeShow  # your code here
 <
+
+==============================================================================
+SECURITY AND PRIVACY                           *calendar-security*
+
+Calendar events and address-book data may be confidential. This plugin
+processes that data locally, but it does not encrypt it or provide access
+control. The built-in provider stores events persistently as plaintext JSON,
+and providers may create additional plaintext snapshots or cache files.
+
+Temporary files are deleted on the normal processing path where possible,
+but deletion is best-effort, is not secure erasure, and may not occur after a
+crash or forced termination. Files may also be retained by backups, indexing
+tools, antivirus software, or filesystem recovery mechanisms.
+
+Use storage locations and operating-system permissions appropriate for the
+data, and assess the plugin against your organization's confidentiality and
+retention requirements. The software is provided "as-is" under the BSD
+3-Clause License.
+
+==============================================================================
+CODE STRUCTURE                                     *calendar-code-structure*
+
+- `frontend.vim` coordinates calendar windows, navigation, and public commands.
+- `calendar_view.vim` and `week_view.vim` render calendar and appointment views.
+- `config.vim`, `diary.vim`, and `diary_search.vim` own configuration and
+  diary operations.
+- `appointments.vim` parses and caches appointment data.
+- `local_provider.vim` implements the default persistent JSON calendar.
+- `help_popup.vim` and `highlights.vim` contain focused UI behavior.
+
 
 ==============================================================================
 LICENSE                                         *calendar-license*

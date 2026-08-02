@@ -6,13 +6,11 @@ A Vim 9.0 ported and refactored version of [mattn/calendar-vim][1].
 
 ## What it does
 
-- Split-window calendar (EU, US, or work-week layout)
-- ISO week-number column (optional)
-- Multiple diary books — per-diary path, resolution, and Outlook connect hook
-- Diary pages opened from calendar days (`<CR>` navigates, `<C-CR>` opens and closes)
-- Week view panel with appointment grid (requires a `connect` hook)
-- Native provider appointment composition and editing from the week grid
-- Address-book omni-completion in diary files (`<C-X><C-O>`)
+- Split-window calendar display
+- ISO (EU), US, and work-week (Mon–Fri) layouts
+- Week view panel with calendar events integration
+- Multiple configurable diary books
+- Address-book omni-completion in diary files
 - Configurable holidays
 
 ## Installation
@@ -30,11 +28,6 @@ Requires **Vim 9.0** or later.
 | `:CalendarSearch {keyword} [{year}]` | Search diary markdown files |
 | `:CalendarWipe` | Close tab and wipe all calendar buffers |
 
-Recommended mapping in your `.vimrc`:
-
-```vim
-nnoremap W <Cmd>CalendarToggle<CR>
-```
 
 Press `?` inside the calendar for a full key-binding reference.
 
@@ -42,8 +35,8 @@ Press `?` inside the calendar for a full key-binding reference.
 
 ```vim
 g:calendar_config = {
-  position:         'left',   # 'left' | 'right'
-  cal_type:         'eu',     # 'eu' | 'us' | 'work'
+  position:         'left',
+  cal_type:         'eu',
   show_week_number: false,
   number_of_months: 3,
   holidays: {'2026-12-25': 'Christmas'},
@@ -56,125 +49,51 @@ g:calendar_config = {
 }
 ```
 
-## Week view with Outlook integration (Windows)
+## Calendar provider integration
 
-Add a `connect` function and optional `week_display_type` / `week_cell_width`
-to your config:
+Events in the calendar can be created, edited, stored and fetched from a
+locally stored JSON file or from an external source such as Outlook.
+See `:help calendar` for more info.
 
-```vim
-# 1. The connect hook — called whenever a new week is needed.
-#    Must write a JSON file and return its path ('': failure).
-def g:OutlookCalendarFetch(year: number, month: number, day: number): string
-  var out    = $'{$TEMP}\calendar_week.json'
-  var script = expand('~/vimfiles/ps1_scripts/fetch_calendar.ps1')
-  system($'powershell -NoProfile -File "{script}"'
-      .. $' -Year {year} -Month {month} -Day {day} -OutputFile "{out}"')
-  return filereadable(out) ? out : ''
-enddef
+### Built-in local event form
 
-# 2. Config — diary with connect hook
-g:calendar_config = {
-  cal_type:          'eu',
-  week_display_type: 'work',   # 'eu' | 'us' | 'work'
-  week_cell_width:   18,
-  diaries_dict: {
-    Outlook: {
-      path:    '~/diary/outlook',
-      resolution: 'day',
-      connect: 'g:OutlookCalendarFetch',
-      compose: 'g:OutlookCalendarCompose',
-      edit:    'g:OutlookCalendarEdit',
-      address_book: $'{$TEMP}\outlook_address_book.json',
-    },
-  },
-  active_diary: 'Outlook',
-}
-```
+When a diary defines neither `fetch_events` nor `manage_events`, vim-calendar
+uses its built-in local JSON provider. In `__WeekView__`, press `m` on an
+empty hour cell to create an event, or on an existing event to edit it.
 
-### Appointments JSON format
+`__CalendarEventForm__` supports these fields:
 
-The PowerShell script must write a UTF-8 **without BOM** JSON file
-(`[IO.File]::WriteAllText`, not `Set-Content -Encoding UTF8`):
-
-```json
-[
-  {
-    "start":     "2026-07-27T09:00:00",
-    "end":       "2026-07-27T10:00:00",
-    "subject":   "Team Meeting",
-    "organizer": "Alice Smith",
-    "location":  "Room A",
-    "body":      "Agenda:\n1. Sprint review\n2. Planning",
-    "entryid":   "<opaque Outlook EntryID>"
-  },
-  {
-    "start":   "2026-07-28T00:00:00",
-    "end":     "2026-07-29T00:00:00",
-    "allday":  true,
-    "subject": "Sprint Planning",
-    "organizer": "Dave"
-  }
-]
-```
-
-Required fields: `start`, `end`, `subject`.
-Optional: `organizer`, `location`, `body`, `entryid`, `allday`.
-All-day `end` is exclusive (Outlook convention: a Mon–Wed event ends on Thu midnight).
-
-### Week view key bindings
-
-| Key | Action |
+| Field | Format |
 |---|---|
-| `K` | Popup preview (subject, time, organizer, location, body excerpt — Teams/Zoom links stripped) |
-| `<CR>` | Open full appointment body in a split below |
-| `n` | Open a native provider event at the selected date/hour |
-| `e` | Edit the appointment under the cursor (organizer only) |
-| `?` | Show week-view key bindings |
-| `q` / `<Esc>` | Close the appointment split |
+| `Title` | Required |
+| `Start`, `End` | Required; `YYYY-MM-DD HH:MM` |
+| `Organizer`, `Location` | Optional |
+| `AllDay` | `true` or `false` |
+| `Body` | Optional; may continue on following lines |
 
-The `compose` hook receives start and end strings in `YYYY-MM-DD HH:MM`
-format. The `edit` hook receives the provider-specific `entryid`.
+Press `W` to save/create/update, `Q` to discard, or `?` for field help.
+`:w` also saves the form. Event IDs are generated and preserved internally.
+In `__WeekView__`, `d` deletes a local event. Provider-backed calendars may
+interpret `d` as the appropriate decline, cancellation, or deletion action.
+Use `a` to accept an invitation and `v` to respond tentatively when supported
+by the active provider. `t` remains “go to current week.”
 
-## Address book completion
+## Security and privacy
 
-Set `address_book` in a diary entry to enable `<C-X><C-O>` omni-completion
-when editing diary files.  The file format (same as vim-outlook):
+Calendar and address-book data may be confidential. This plugin processes
+that data locally, but it does not encrypt it or provide access control.
+The built-in provider stores events persistently as plaintext JSON, and
+providers may create additional plaintext snapshots or cache files.
 
-```json
-[
-  {"name": "Alice Smith", "email": "alice@example.com"},
-  {"name": "Bob Jones",   "email": "bob@example.com"}
-]
-```
+Temporary files are deleted on the normal processing path where possible,
+but deletion is best-effort, is not secure erasure, and may not occur after
+a crash or forced termination. Files may also be retained by backups,
+indexing tools, antivirus software, or filesystem recovery mechanisms.
 
-When using vim-outlook, it writes this file automatically.  In pure-Outlook
-setups you can export contacts from PowerShell:
-
-```powershell
-$ol = New-Object -ComObject Outlook.Application
-$contacts = $ol.GetNamespace("MAPI").GetDefaultFolder(10).Items
-$book = $contacts | ForEach-Object {
-    [ordered]@{ name = $_.FullName; email = $_.Email1Address }
-} | Where-Object { $_.email }
-[IO.File]::WriteAllText(
-    "$env:TEMP\outlook_address_book.json",
-    ($book | ConvertTo-Json),
-    [Text.UTF8Encoding]::new($false))
-```
-
-## Full help
-
-```vim
-:help calendar
-```
-
-## Code structure
-
-- `frontend.vim` coordinates calendar windows, navigation, and public commands.
-- `calendar_view.vim` and `week_view.vim` render calendar and appointment views.
-- `config.vim`, `diary.vim`, and `diary_search.vim` own configuration and diary operations.
-- `appointments.vim` parses and caches appointment data.
-- `help_popup.vim` and `highlights.vim` contain focused UI behavior.
+Use storage locations and operating-system permissions appropriate for the
+data, and assess the plugin against your organization's confidentiality and
+retention requirements. The software is provided "as is" under the BSD
+3-Clause License.
 
 ## License
 

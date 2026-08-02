@@ -18,27 +18,23 @@ const WEEK_DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
 
 var week_day_col          = 16   # cell width; set via Configure()
 var cfg_week_display_type = 'eu' # 'eu' | 'us' | 'work'; set via Configure()
-var compose_func = ''
-var edit_func = ''
+var manage_events_func = ''
 
 # Maps body-buffer line number (as string) → 7-element list of appointment
 # dicts, one per day column.  Empty dict means no appointment in that cell.
 # Rebuilt on every RenderWeekView call.
 var appt_line_map: dict<list<dict<any>>> = {}
+var allday_line_map: dict<dict<any>> = {}
 var slot_line_hour: dict<number> = {}
 var displayed_dates: list<string> = []
 
-# Set the active diary's connect function and clear the week cache.
+# Set the active diary's provider functions and clear the week cache.
 # Must be called whenever the active diary changes.
-export def SetConnectFunc(name: string)
-  t:cal_connect_func = name
+export def SetProviderFuncs(fetch_name: string, manage_name: string)
+  t:cal_fetch_events_func = fetch_name
+  manage_events_func = manage_name
   appointments.Clear()
   appt_line_map = {}
-enddef
-
-export def SetActionFuncs(compose_name: string, edit_name: string)
-  compose_func = compose_name
-  edit_func = edit_name
 enddef
 
 # Configure display type and cell width.  Called from frontend.InitVariables.
@@ -86,6 +82,19 @@ def WeekCacheKey(year: number, month: number, day: number): string
         - (backend.WeekdayForDate(year, month, day) % 7))
     : backend.WeekDays(year, month, day)[0]
   return printf('%04d-%02d-%02d', start.year, start.month, start.day)
+enddef
+
+def FetchRange(year: number, month: number, day: number): dict<string>
+  var days = DisplayWdays(year, month, day,
+    backend.WeekDays(year, month, day))
+  var first = days[0]
+  var last = days[-1]
+  var after = backend.JDNToDate(
+    backend.DateToJDN(last.year, last.month, last.day) + 1)
+  return {
+    start: printf('%04d-%02d-%02d', first.year, first.month, first.day),
+    end: printf('%04d-%02d-%02d', after.year, after.month, after.day),
+  }
 enddef
 
 # ─── Render helpers ──────────────────────────────────────────────────────────
@@ -143,6 +152,7 @@ enddef
 # already adjusted by 1 day before being stored.
 # wdays must already be in display order (output of DisplayWdays).
 def AllDayRows(events: dict<any>, wdays: list<dict<any>>): list<string>
+  allday_line_map = {}
   var allday = get(events, 'allday', [])
   if empty(allday)
     return []
@@ -180,6 +190,7 @@ def AllDayRows(events: dict<any>, wdays: list<dict<any>>): list<string>
       ? label .. repeat('-', fill_len)
       : strcharpart(label, 0, cell_width)
     lines->add($'{left_pad}{content}|')
+    allday_line_map[string(len(lines))] = ev
   endfor
   return lines
 enddef
@@ -215,7 +226,7 @@ export def OpenWeekViewWindow(tabnew_bufnr: number): bool
   if exists('+winhighlight')
     setlocal winhighlight=StatusLine:Normal,StatusLineNC:Normal
   endif
-  nnoremap <silent> <buffer> <F5> <Cmd>CalendarRefresh<CR>
+  WeekHeaderBuildKeymap()
 
   # Bottom window — body (scrollable; week title shown in statusline)
   var body_buf = bufnr(WEEK_BUF_NAME)
@@ -353,7 +364,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
 enddef
 
 # Navigate the week view to the week containing (year, month, day).
-# Uses the cache if available; otherwise fires the connect hook and renders
+# Uses the cache if available; otherwise fetches events and renders
 # an empty grid (the hook will fill it in synchronously via LoadAppointments).
 export def NavigateWeekView(year: number, month: number, day: number)
   var cache_key = WeekCacheKey(year, month, day)
@@ -362,17 +373,18 @@ export def NavigateWeekView(year: number, month: number, day: number)
   else
     # Set t:cal_week_key before the hook fires so LoadAppointments caches correctly.
     t:cal_week_key = cache_key
-    CallConnectHook(year, month, day)
+    FetchEvents(year, month, day)
     if !appointments.Has(cache_key)
       RenderWeekView(year, month, day, {})
     endif
   endif
 enddef
 
-# Call the active diary's connect hook for the given week date.
+# Call the active diary's fetch_events hook for the displayed date range.
 # The hook must return the path it wrote to on success, '' on failure.
-export def CallConnectHook(year: number = -1, month: number = -1, day: number = -1)
-  if empty(get(t:, 'cal_connect_func', '')) || !exists($'*{t:cal_connect_func}')
+export def FetchEvents(year: number = -1, month: number = -1, day: number = -1)
+  if empty(get(t:, 'cal_fetch_events_func', ''))
+      || !exists($'*{t:cal_fetch_events_func}')
     return
   endif
   var stored_key = get(t:, 'cal_week_key', '')
@@ -388,7 +400,7 @@ export def CallConnectHook(year: number = -1, month: number = -1, day: number = 
     ? day
     : use_stored ? str2nr(stored_key[8 : 9]) : str2nr(strftime('%d'))
   t:cal_week_key = WeekCacheKey(fy, fm, fd)
-  var path = function(t:cal_connect_func)(fy, fm, fd)
+  var path = function(t:cal_fetch_events_func)(FetchRange(fy, fm, fd))
   if !empty(path)
     LoadAppointments(path)
   endif
@@ -415,9 +427,9 @@ def LoadAppointments(path: string)
 enddef
 
 # Re-fetch appointments for the currently displayed week.
-# Invalidates the cache entry so fresh data is pulled from the connect hook.
+# Invalidates the cache entry so fresh data is pulled from the provider.
 export def CalendarRefresh()
-  if empty(get(t:, 'cal_connect_func', ''))
+  if empty(get(t:, 'cal_fetch_events_func', ''))
     return
   endif
   var stored_key = get(t:, 'cal_week_key', '')
@@ -428,12 +440,12 @@ export def CalendarRefresh()
   var ky = str2nr(key[0 : 3])
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
-  CallConnectHook(ky, km, kd)
+  FetchEvents(ky, km, kd)
   RescheduleReminders()
 enddef
 
 # Scan cached appointments for today's meetings and reschedule reminder timers.
-# Called explicitly after every connect hook — the authoritative place to
+# Called explicitly after every event fetch — the authoritative place to
 # trigger reminders so the scheduling is always visible and not a buried
 # side effect of LoadAppointments.
 export def RescheduleReminders()
@@ -445,7 +457,10 @@ enddef
 # or {} if the cursor is on a separator, time column, or empty cell.
 # col_idx (0-6) is derived from the fixed column widths:
 #   WEEK_TIME_COL chars + '│' then each day = WEEK_DAY_COL chars + '│'
-export def GetAppointmentAtCursor(): dict<any>
+export def GetEventAtCursor(): dict<any>
+  if bufname('%') ==# WEEK_HDR_BUF_NAME
+    return get(allday_line_map, string(line('.')), {})
+  endif
   var row = get(appt_line_map, string(line('.')), [])
   if empty(row)
     return {}
@@ -489,37 +504,79 @@ def ComposeAppointment()
     echo '[Calendar] Place the cursor inside a day/hour cell.'
     return
   endif
-  if empty(compose_func) || !exists($'*{compose_func}')
-    echoerr '[Calendar] No appointment compose hook is configured.'
+  if empty(manage_events_func) || !exists($'*{manage_events_func}')
+    echoerr '[Calendar] No manage_events hook is configured.'
     return
   endif
   var end_slot = SlotEnd(slot.date, slot.hour)
   var start = $'{slot.date} {printf("%02d:00", slot.hour)}'
   var end = $'{end_slot[0]} {printf("%02d:00", end_slot[1])}'
-  var result = function(compose_func)(start, end)
+  var result = function(manage_events_func)({
+    action: 'create',
+    start: start,
+    end: end,
+  })
   if type(result) == v:t_bool && !result
     echoerr '[Calendar] Could not open the appointment editor.'
   endif
 enddef
 
 def EditAppointment()
-  var appointment = GetAppointmentAtCursor()
-  if empty(appointment)
+  var event = GetEventAtCursor()
+  if empty(event)
     echo '[Calendar] Place the cursor on an appointment.'
     return
   endif
-  var entryid = get(appointment, 'entryid', '')
-  if empty(entryid)
+  var event_id = get(event, 'id', '')
+  if empty(event_id)
     echoerr '[Calendar] This appointment has no provider identifier.'
     return
   endif
-  if empty(edit_func) || !exists($'*{edit_func}')
-    echoerr '[Calendar] No appointment edit hook is configured.'
+  if empty(manage_events_func) || !exists($'*{manage_events_func}')
+    echoerr '[Calendar] No manage_events hook is configured.'
     return
   endif
-  var result = function(edit_func)(entryid)
+  var result = function(manage_events_func)({
+    action: 'edit',
+    id: event_id,
+  })
   if type(result) == v:t_bool && !result
     echoerr '[Calendar] Could not open this appointment for editing.'
+  endif
+enddef
+
+# Single entry point for the `m` mapping: edit the event under the cursor,
+# or create a new one at the selected slot when there is none.
+def ManageEventAtCursor()
+  if empty(GetEventAtCursor())
+    ComposeAppointment()
+  else
+    EditAppointment()
+  endif
+enddef
+
+def EventAction(action: string)
+  var event = GetEventAtCursor()
+  if empty(event)
+    echo '[Calendar] Place the cursor on an event.'
+    return
+  endif
+  var event_id = get(event, 'id', '')
+  if empty(event_id)
+    echoerr '[Calendar] This event has no provider identifier.'
+    return
+  endif
+  if empty(manage_events_func) || !exists($'*{manage_events_func}')
+    echoerr '[Calendar] No manage_events hook is configured.'
+    return
+  endif
+  var result = function(manage_events_func)({
+    action: action,
+    id: event_id,
+    start: get(event, 'provider_start', ''),
+  })
+  if type(result) == v:t_bool && !result
+    echoerr $'[Calendar] Could not {action} this event.'
   endif
 enddef
 
@@ -574,10 +631,10 @@ def AppointmentDetailFilter(id: number, key: string): bool
   return true
 enddef
 
-# Show a popup_atcursor with a brief preview of the appointment under the cursor.
+# Show a popup_atcursor with a brief preview of the event under the cursor.
 # Body is limited to 10 non-empty lines.  Does nothing on empty cells.
 def ShowAppointmentDetails()
-  var appt = GetAppointmentAtCursor()
+  var appt = GetEventAtCursor()
   if empty(appt)
     return
   endif
@@ -625,7 +682,7 @@ export const APPT_BUF_NAME = '__Appointment__'
 # Wipes any previous __Appointment__ buffer first.
 # <Esc> or q closes the window.  Does nothing on empty cells.
 def OpenAppointmentBody()
-  var appt = GetAppointmentAtCursor()
+  var appt = GetEventAtCursor()
   if empty(appt)
     return
   endif
@@ -675,11 +732,28 @@ enddef
 def WeekViewBuildKeymap()
   nnoremap <silent> <buffer> K         <ScriptCmd>ShowAppointmentDetails()<CR>
   nnoremap <silent> <buffer> <CR>      <ScriptCmd>OpenAppointmentBody()<CR>
-  nnoremap <silent> <buffer> n         <ScriptCmd>ComposeAppointment()<CR>
-  nnoremap <silent> <buffer> e         <ScriptCmd>EditAppointment()<CR>
+  nnoremap <silent> <buffer> m         <ScriptCmd>ManageEventAtCursor()<CR>
+  nnoremap <silent> <buffer> d         <ScriptCmd>EventAction('delete')<CR>
+  nnoremap <silent> <buffer> a         <ScriptCmd>EventAction('accept')<CR>
+  nnoremap <silent> <buffer> v         <ScriptCmd>EventAction('tentative')<CR>
   nnoremap <silent> <buffer> <C-Right> <Cmd>CalendarWeekNav next<CR>
   nnoremap <silent> <buffer> <C-Left>  <Cmd>CalendarWeekNav prev<CR>
   nnoremap <silent> <buffer> t         <Cmd>CalendarWeekNav today<CR>
+  nnoremap <silent> <buffer> <Tab>     <Cmd>CalendarDiaryCycle next<CR>
+  nnoremap <silent> <buffer> <S-Tab>   <Cmd>CalendarDiaryCycle prev<CR>
+  nnoremap <silent> <buffer> <F5>      <Cmd>CalendarRefresh<CR>
+  nnoremap <silent> <buffer> ?         <ScriptCmd>help_popup.ShowWeek()<CR>
+enddef
+
+def WeekHeaderBuildKeymap()
+  nnoremap <silent> <buffer> K         <ScriptCmd>ShowAppointmentDetails()<CR>
+  nnoremap <silent> <buffer> <CR>      <ScriptCmd>OpenAppointmentBody()<CR>
+  nnoremap <silent> <buffer> m         <ScriptCmd>ManageEventAtCursor()<CR>
+  nnoremap <silent> <buffer> d         <ScriptCmd>EventAction('delete')<CR>
+  nnoremap <silent> <buffer> a         <ScriptCmd>EventAction('accept')<CR>
+  nnoremap <silent> <buffer> v         <ScriptCmd>EventAction('tentative')<CR>
+  nnoremap <silent> <buffer> <Tab>     <Cmd>CalendarDiaryCycle next<CR>
+  nnoremap <silent> <buffer> <S-Tab>   <Cmd>CalendarDiaryCycle prev<CR>
   nnoremap <silent> <buffer> <F5>      <Cmd>CalendarRefresh<CR>
   nnoremap <silent> <buffer> ?         <ScriptCmd>help_popup.ShowWeek()<CR>
 enddef

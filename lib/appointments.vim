@@ -75,6 +75,11 @@ export def LoadFile(path: string): dict<any>
         end_date: printf('%04d-%02d-%02d', last.year, last.month, last.day),
         subject: StripCR(get(item, 'subject', '')),
         organizer: StripCR(get(item, 'organizer', '')),
+        location: StripCR(get(item, 'location', '')),
+        body: StripCR(get(item, 'body', '')),
+        id: get(item, 'id', ''),
+        provider_start: get(item, 'start', ''),
+        allday: true,
       })
       continue
     endif
@@ -93,7 +98,8 @@ export def LoadFile(path: string): dict<any>
       organizer: StripCR(get(item, 'organizer', '')),
       location: StripCR(get(item, 'location', '')),
       body: StripCR(get(item, 'body', '')),
-      entryid: get(item, 'entryid', ''),
+      id: get(item, 'id', ''),
+      provider_start: get(item, 'start', ''),
     })
   endfor
   events.allday = allday
