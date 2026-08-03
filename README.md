@@ -25,6 +25,7 @@ Requires **Vim 9.0** or later.
 
 The best way to learn to use vim-calendar is to run `:CalendarToggle` and hit
 `?`.
+
 Note that different windows shows different helps.
 
 #### Additional Commands
@@ -66,18 +67,6 @@ Apple Calendar, Outlook, etc).
 Integration with Outlook works out of the box if [vim-outlook][2] is installed.
 For other calendars integration some work is required.
 See `:help calendar` for more info.
-
-## Built-in event form
-
-For a diary without custom provider hooks, press `m` in `__WeekView__` to
-create or edit an event. The form supports title, start/end, required and
-optional attendees, organizer, location, all-day status, and body. In either
-attendee field, use `<C-X><C-O>` to complete entries from that diary's
-`address_book`. Diary pages do not change `'omnifunc'`.
-
-Press `W` to save, `Q` to discard, or `?` for form help. After a successful
-local save, the plugin fires `User CalendarEventCreated` or
-`User CalendarEventModified`; the saved dictionary is in `g:calendar_event`.
 
 
 ## Security and privacy
