@@ -1,7 +1,7 @@
 *calendar.txt*                            Calendar utility for vim
 
 Author: ubaldot
-Vim 9.0 ported and refactored version of vim-calendar originally written by
+Vim 9.0 ported, refactored and enhanced version of vim-calendar originally written by
 Yasuhiro Matsumoto <mattn.jp@gmail.com>
 
 ==============================================================================

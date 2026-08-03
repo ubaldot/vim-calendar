@@ -1,6 +1,7 @@
 # vim-calendar
 
-A Vim 9.0 ported and refactored version of [mattn/calendar-vim][1].
+A Vim 9.0 ported, refactored and enhanced version of
+[mattn/calendar-vim][1].
 
 ![vim-calendar week view](Calendar_demo.png)
 

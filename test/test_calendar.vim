@@ -60,6 +60,14 @@ def g:Test_calendar_basic()
   assert_equal(1, winnr('$'))
 enddef
 
+def g:Test_today_highlight_is_bold()
+  var definition = execute('highlight CalToday')
+  assert_match('term=bold', definition)
+  assert_match('cterm=bold', definition)
+  assert_match('gui=bold', definition)
+  assert_notmatch('links to Visual', definition)
+enddef
+
 def g:Test_calendar_reuses_stale_hidden_buffer()
   ResetConfig()
   if exists('+winfixbuf')

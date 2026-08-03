@@ -61,7 +61,7 @@ hi def link CalSunday Error
 hi def link CalRuler Normal
 hi def link CalWeekdays WarningMsg
 hi def link CalWeeknm Visual
-hi def link CalToday Visual
+hi def CalToday term=bold cterm=bold gui=bold
 hi def link CalHeader WarningMsg
 hi def link CalHoliday Error
 hi def link CalCurrList Error
