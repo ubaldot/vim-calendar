@@ -581,13 +581,30 @@ CODE STRUCTURE                                     *calendar-code-structure*
 
 - `frontend.vim` coordinates calendar windows, navigation, and public commands.
 - `calendar_view.vim` and `week_view.vim` render calendar and appointment views.
+- `backend.vim` holds the pure date arithmetic (Julian day numbers, ISO week
+  numbers, month grids) shared by both views.
 - `config.vim`, `diary.vim`, and `diary_search.vim` own configuration and
   diary operations.
 - `appointments.vim` parses and caches appointment data.
 - `local_provider.vim` implements the default persistent JSON calendar.
+- `reminder.vim` schedules and displays the meeting reminder popups.
 - `help_popup.vim` and `highlights.vim` contain focused UI behavior.
 
-The key for making all machinery to work is thanks to the
+The key for making all machinery to work is thanks to the two provider hooks,
+|calendar-fetch_events-hook| and |calendar-manage_events-hook|. Nothing in the
+plugin talks to a calendar backend directly: `week_view.vim` only knows the
+names of two global functions, configured per diary in `g:calendar_config`
+and installed through `week_view.SetProviderFuncs()`. Reading always goes
+through `fetch_events`, which returns the path of a JSON file that
+vim-calendar reads once and then deletes. Writing always goes through
+`manage_events`, which receives a single request dict (`create`, `edit`,
+`delete`, `accept`, or `tentative`) and returns |false| for the actions it
+does not support.
+
+`local_provider.vim` is simply the implementation used when a diary defines
+neither hook. Because the views never see anything but those two function
+names, the local JSON calendar, Outlook, Google, and CalDAV backends are
+interchangeable, and adding a new one requires no change to the views.
 
 ==============================================================================
 LICENSE                                         *calendar-license*
