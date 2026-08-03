@@ -38,8 +38,6 @@ Note that different windows shows different helps.
 | `:CalendarWipe` | Close tab and wipe all calendar buffers |
 
 
-Press `?` inside the calendar for a full key-binding reference.
-
 #### Minimal configuration
 
 ```vim
