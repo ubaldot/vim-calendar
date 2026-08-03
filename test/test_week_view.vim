@@ -45,6 +45,36 @@ def BufLines(name: string): list<string>
   return getbufline(bufnr(name), 1, '$')
 enddef
 
+# Grid geometry mirrored from week_view.vim (WEEK_TIME_COL / week_cell_width).
+const GRID_TIME_COL = 8
+const GRID_DAY_COL = 16
+const GRID_DATES = ['2026-07-27', '2026-07-28', '2026-07-29', '2026-07-30',
+                    '2026-07-31', '2026-08-01', '2026-08-02']
+
+# One 09:00 event per weekday, so each day column carries a distinct id.
+def WriteGridEvents(subjects: list<string>, id_prefix: string): string
+  var events = range(7)->mapnew((i, _) => ({
+    start: $'{GRID_DATES[i]}T09:00:00',
+    end: $'{GRID_DATES[i]}T10:00:00',
+    subject: subjects[i],
+    organizer: $'Org{i}',
+    id: $'{id_prefix}-{i}',
+  }))
+  var tmp = tempname() .. '.json'
+  writefile([json_encode(events)], tmp)
+  return tmp
+enddef
+
+def g:GridFetchEvents(_request: dict<any>): string
+  return WriteGridEvents(
+    range(7)->mapnew((i, _) => $'Day{i}'), 'DAY')
+enddef
+
+def g:UnicodeFetchEvents(_request: dict<any>): string
+  return WriteGridEvents(
+    ['Café', 'Über', 'Naïve', 'Groß', 'Æther', 'Ωmega', 'Ünix'], 'UNI')
+enddef
+
 def HasLine(lines: list<string>, pat: string): bool
   return !empty(filter(copy(lines), $'v:val =~ "{pat}"'))
 enddef
@@ -706,6 +736,72 @@ def g:Test_reschedule_reminders_cancels_stale_timers()
   week_view.RescheduleReminders()
   assert_equal(0, reminder.PendingCount(),
     'Refreshing to an empty cache must cancel obsolete reminders')
+enddef
+
+def g:Test_event_and_slot_resolve_across_every_cell_column()
+  ResetConfig()
+  g:calendar_config.diaries_dict.TestDiary.fetch_events = 'g:GridFetchEvents'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  week_view.NavigateWeekView(2026, 7, 27)
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  var lnum = search('Day0', 'w')
+  assert_true(lnum > 0, 'Grid fixture row must be rendered')
+
+  # Every screen column inside a day cell must resolve to that day's event and
+  # slot.  The '│' separator is multibyte, so byte-column arithmetic drifts
+  # further right with each column and silently targets the wrong day.
+  var bad_events: list<string> = []
+  var bad_slots: list<string> = []
+  for day_idx in range(7)
+    var first_col = GRID_TIME_COL + 2 + day_idx * (GRID_DAY_COL + 1)
+    for screen_col in range(first_col, first_col + GRID_DAY_COL - 1)
+      cursor(lnum, virtcol2col(0, lnum, screen_col))
+      var got_id = get(week_view.GetEventAtCursor(), 'id', '(none)')
+      if got_id !=# $'DAY-{day_idx}'
+        bad_events->add($'col {screen_col}: {got_id}')
+      endif
+      var got_date = get(week_view.GetSlotAtCursor(), 'date', '(none)')
+      if got_date !=# GRID_DATES[day_idx]
+        bad_slots->add($'col {screen_col}: {got_date}')
+      endif
+    endfor
+  endfor
+  assert_equal([], bad_events,
+    'Every column of a day cell must resolve to that day''s event')
+  assert_equal([], bad_slots,
+    'Every column of a day cell must resolve to that day''s creation slot')
+
+  CalendarWipe
+enddef
+
+def g:Test_non_ascii_events_keep_grid_alignment()
+  ResetConfig()
+  g:calendar_config.diaries_dict.TestDiary.fetch_events = 'g:UnicodeFetchEvents'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  week_view.NavigateWeekView(2026, 7, 27)
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  var lnum = search('Café', 'w')
+  assert_true(lnum > 0, 'Unicode fixture row must be rendered')
+
+  # printf()'s field width counts bytes, so non-ASCII cells used to render
+  # narrower than the separator rule and shifted every cell to their right.
+  var rule_width = strdisplaywidth(getline(lnum + 2))
+  assert_equal(rule_width, strdisplaywidth(getline(lnum)),
+    'A row containing non-ASCII text must keep the grid width')
+
+  for day_idx in range(7)
+    var first_col = GRID_TIME_COL + 2 + day_idx * (GRID_DAY_COL + 1)
+    cursor(lnum, virtcol2col(0, lnum, first_col))
+    assert_equal($'UNI-{day_idx}',
+      get(week_view.GetEventAtCursor(), 'id', '(none)'),
+      $'Non-ASCII subjects must not shift day {day_idx}')
+  endfor
+
+  CalendarWipe
 enddef
 
 # vim: shiftwidth=2 softtabstop=2 noexpandtab

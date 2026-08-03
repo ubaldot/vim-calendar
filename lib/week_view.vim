@@ -108,16 +108,36 @@ def WeekSepLine(join_char: string, n_days: number): string
     join(range(n_days)->mapnew((_, _) => repeat('─', week_day_col)), join_char)
 enddef
 
+# Cut text down to at most `width` screen cells.
+def TruncateToWidth(text: string, width: number): string
+  if width <= 0
+    return ''
+  endif
+  var out = text
+  while !empty(out) && strdisplaywidth(out) > width
+    out = strcharpart(out, 0, strcharlen(out) - 1)
+  endwhile
+  return out
+enddef
+
+# Pad/truncate a cell to exactly `width` screen cells.  printf()'s field width
+# counts bytes, so it silently shrinks cells containing non-ASCII text and
+# misaligns the whole grid; cell geometry must be measured in screen cells.
+def FitCell(text: string, width: number): string
+  var out = TruncateToWidth(text, width)
+  return out .. repeat(' ', width - strdisplaywidth(out))
+enddef
+
 def WeekDataRow(time_cell: string, day_cells: list<string>): string
-  var tc = printf('%-*s', WEEK_TIME_COL, strcharpart(time_cell, 0, WEEK_TIME_COL))
+  var tc = FitCell(time_cell, WEEK_TIME_COL)
   return tc .. '│' .. join(day_cells->mapnew(
-    (_, c) => printf('%-*s', week_day_col, strcharpart(c, 0, week_day_col))), '│')
+    (_, c) => FitCell(c, week_day_col)), '│')
 enddef
 
 def CellText(text: string): string
   var max_len = week_day_col - 1
-  var content = strcharlen(text) > max_len
-    ? strcharpart(text, 0, max_len - 3) .. '...'
+  var content = strdisplaywidth(text) > max_len
+    ? TruncateToWidth(text, max_len - 3) .. '...'
     : text
   return $' {content}'
 enddef
@@ -475,11 +495,14 @@ export def GetEventAtCursor(): dict<any>
   if empty(row)
     return {}
   endif
-  # Time column occupies cols 1..WEEK_TIME_COL, then col WEEK_TIME_COL+1 is '│'.
-  if col('.') <= WEEK_TIME_COL + 1
+  # Screen columns are used because '│' separators and event text may be
+  # multibyte: byte columns would drift away from the rendered cell layout.
+  # The time column occupies screen cols 1..WEEK_TIME_COL, then WEEK_TIME_COL+1
+  # is '│'.
+  if virtcol('.') <= WEEK_TIME_COL + 1
     return {}
   endif
-  var col_idx = (col('.') - WEEK_TIME_COL - 2) / (week_day_col + 1)
+  var col_idx = (virtcol('.') - WEEK_TIME_COL - 2) / (week_day_col + 1)
   if col_idx < 0 || col_idx >= len(row)
     return {}
   endif
@@ -488,10 +511,10 @@ enddef
 
 export def GetSlotAtCursor(): dict<any>
   var key = string(line('.'))
-  if !has_key(slot_line_hour, key) || col('.') <= WEEK_TIME_COL + 1
+  if !has_key(slot_line_hour, key) || virtcol('.') <= WEEK_TIME_COL + 1
     return {}
   endif
-  var col_idx = (col('.') - WEEK_TIME_COL - 2) / (week_day_col + 1)
+  var col_idx = (virtcol('.') - WEEK_TIME_COL - 2) / (week_day_col + 1)
   if col_idx < 0 || col_idx >= len(displayed_dates)
     return {}
   endif
