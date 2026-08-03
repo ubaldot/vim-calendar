@@ -7,6 +7,7 @@ packadd CalendarToggle
 import autoload "../lib/calendar_view.vim"
 import autoload "../lib/frontend.vim"
 import autoload "../lib/local_provider.vim"
+import autoload "../lib/diary.vim"
 
 
 def ResetConfig()
@@ -233,10 +234,16 @@ enddef
 def g:Test_open_diary_path_with_special_characters()
   ResetConfig()
   var tmp_root = tempname() .. '_calendar diary #1'
+  var address_book = tempname() .. '.json'
   delete(tmp_root, 'rf')
+  writefile(['[]'], address_book)
 
   g:calendar_config.diaries_dict = {
-    My_Diary: {path: tmp_root, resolution: 'month'},
+    My_Diary: {
+      path: tmp_root,
+      resolution: 'month',
+      address_book: address_book,
+    },
   }
   g:calendar_config.active_diary = 'My_Diary'
   g:calendar_config.auto_create_diary_dirs = true
@@ -257,9 +264,12 @@ def g:Test_open_diary_path_with_special_characters()
     fnamemodify(opened, ':h:t'),
     fnamemodify(opened, ':t'),
   ], 'Diary paths must survive spaces and Ex-special characters')
+  assert_notequal('CalendarAddressBookComplete', &l:omnifunc,
+    'Opening a diary page must not install the event-form omnifunc')
 
   bwipeout!
   delete(tmp_root, 'rf')
+  delete(address_book)
 enddef
 
 def g:Test_calendar_search_path_with_special_characters()
@@ -336,6 +346,13 @@ enddef
 def g:Test_local_provider_creates_and_edits_events()
   var persistent = tempname() .. '.json'
   local_provider.Configure('Local', persistent)
+  g:test_event_created = 0
+  g:test_event_modified = 0
+  augroup CalendarEventTestAu
+    autocmd!
+    autocmd User CalendarEventCreated g:test_event_created += 1
+    autocmd User CalendarEventModified g:test_event_modified += 1
+  augroup END
 
   assert_true(local_provider.ManageEvents({
     action: 'create',
@@ -343,6 +360,7 @@ def g:Test_local_provider_creates_and_edits_events()
     end: '2026-08-03 10:00',
   }))
   assert_equal(local_provider.FORM_BUF_NAME, bufname('%'))
+  assert_equal('CalendarAddressBookComplete', &l:omnifunc)
   execute 'normal ?'
   assert_equal(1, len(popup_list()))
   assert_match('AllDay',
@@ -352,6 +370,8 @@ def g:Test_local_provider_creates_and_edits_events()
     'Title: Created event',
     'Start: 2026-08-03 09:00',
     'End: 2026-08-03 10:00',
+    'Required Attendees: Alice <alice@example.com>',
+    'Optional Attendees: Carol <carol@example.com>',
     'Organizer: Alice',
     'Location: Room A',
     'AllDay: false',
@@ -364,10 +384,15 @@ def g:Test_local_provider_creates_and_edits_events()
   var events = json_decode(readfile(persistent)->join("\n"))
   assert_equal(1, len(events))
   assert_equal('Created event', events[0].subject)
+  assert_equal('Alice <alice@example.com>', events[0].required_attendees)
+  assert_equal('Carol <carol@example.com>', events[0].optional_attendees)
   assert_equal('Alice', events[0].organizer)
   assert_equal('Room A', events[0].location)
   assert_false(events[0].allday)
   assert_equal("First line\nSecond line", events[0].body)
+  assert_equal(1, g:test_event_created)
+  assert_equal(0, g:test_event_modified)
+  assert_equal('Created event', g:calendar_event.subject)
 
   assert_true(local_provider.ManageEvents({
     action: 'edit',
@@ -379,24 +404,110 @@ def g:Test_local_provider_creates_and_edits_events()
     'Title: Updated event',
     'Start: 2026-08-03 10:00',
     'End: 2026-08-03 11:00',
+    'Required Attendees: Bob <bob@example.com>',
+    'Optional Attendees: ',
     'Organizer: Bob',
     'Location: Room B',
     'AllDay: true',
     'Body: Updated body',
   ])
-  deletebufline('%', 8, '$')
+  deletebufline('%', 10, '$')
   write
 
   events = json_decode(readfile(persistent)->join("\n"))
   assert_equal(1, len(events))
   assert_equal('Updated event', events[0].subject)
+  assert_equal('Bob <bob@example.com>', events[0].required_attendees)
+  assert_equal('', events[0].optional_attendees)
   assert_equal('2026-08-03T00:00', events[0].start)
   assert_equal('2026-08-04T00:00', events[0].end)
   assert_equal('Bob', events[0].organizer)
   assert_equal('Room B', events[0].location)
   assert_true(events[0].allday)
   assert_equal('Updated body', events[0].body)
+  assert_equal(1, g:test_event_created)
+  assert_equal(1, g:test_event_modified)
+  assert_equal('Updated event', g:calendar_event.subject)
 
+  augroup CalendarEventTestAu
+    autocmd!
+  augroup END
+  unlet g:test_event_created
+  unlet g:test_event_modified
+  delete(persistent)
+enddef
+
+def g:Test_event_form_address_book_completion()
+  var address_book = tempname() .. '.json'
+  writefile([json_encode([
+    {name: 'Alice Smith', email: 'alice@example.com'},
+    {name: 'Bob Jones', email: 'bob@example.com'},
+  ])], address_book)
+  diary.Configure('~/my_diary', 'day', address_book, false)
+  local_provider.Configure('Local', tempname() .. '.json', address_book)
+
+  assert_true(local_provider.ManageEvents({
+    action: 'create',
+    start: '2026-08-03 09:00',
+    end: '2026-08-03 10:00',
+  }))
+  setline(4, 'Required Attendees: Alice')
+  cursor(4, strlen(getline(4)) + 1)
+  assert_true(g:CalendarAddressBookComplete(1, '') >= 0)
+  var matches = g:CalendarAddressBookComplete(0, 'Alice')
+  assert_equal(['Alice Smith <alice@example.com>'],
+    matches->mapnew((_, match) => match.word))
+
+  var other_address_book = tempname() .. '.json'
+  writefile([json_encode([
+    {name: 'Carol White', email: 'carol@example.com'},
+  ])], other_address_book)
+  diary.Configure('~/other_diary', 'day', other_address_book, false)
+  matches = g:CalendarAddressBookComplete(0, 'Alice')
+  assert_equal(['Alice Smith <alice@example.com>'],
+    matches->mapnew((_, match) => match.word),
+    'An open form must retain its originating address book')
+
+  setline(1, 'Title: Alice')
+  cursor(1, strlen(getline(1)) + 1)
+  assert_equal(-2, g:CalendarAddressBookComplete(1, ''))
+
+  execute 'normal Q'
+  delete(address_book)
+  delete(other_address_book)
+enddef
+
+def g:CalendarTestSwitchBuffer()
+  enew
+  file __CalendarCallbackBuffer__
+  setline(1, 'Unsaved callback work')
+enddef
+
+def g:Test_event_form_callback_cannot_wipe_other_buffer()
+  var persistent = tempname() .. '.json'
+  local_provider.Configure('Local', persistent)
+  augroup CalendarEventBufferTestAu
+    autocmd!
+    autocmd User CalendarEventCreated g:CalendarTestSwitchBuffer()
+  augroup END
+
+  assert_true(local_provider.ManageEvents({
+    action: 'create',
+    start: '2026-08-03 09:00',
+    end: '2026-08-03 10:00',
+  }))
+  setline(1, 'Title: Callback event')
+  execute 'normal W'
+
+  assert_equal('__CalendarCallbackBuffer__', bufname('%'))
+  assert_equal('Unsaved callback work', getline(1))
+  assert_true(&modified)
+  assert_equal(-1, bufnr(local_provider.FORM_BUF_NAME))
+
+  augroup CalendarEventBufferTestAu
+    autocmd!
+  augroup END
+  bwipeout!
   delete(persistent)
 enddef
 
@@ -415,6 +526,8 @@ def g:Test_local_provider_form_keeps_originating_events_file()
     'Title: First diary event',
     'Start: 2026-08-03 09:00',
     'End: 2026-08-03 10:00',
+    'Required Attendees: ',
+    'Optional Attendees: ',
     'Organizer: ',
     'Location: Room A',
     'AllDay: false',

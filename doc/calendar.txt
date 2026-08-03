@@ -27,10 +27,11 @@ written by Yasuhiro Matsumoto <mattn.jp@gmail.com>
 
 Key features:
 - Split-window calendar display
+- Events preview with 'K'
 - ISO (EU), US, and work-week (Mon–Fri) layouts
 - Week view panel with calendar events integration
 - Multiple configurable diary books
-- Address-book omni-completion in diary files
+- Address-book completion for event attendees
 - Configurable holidays
 
 Requires Vim 9.0 or later.
@@ -106,7 +107,7 @@ Week view (right pane) ~
     ?                   Show week-view key bindings
     q / |<Esc>|           Close the appointment body split
 
-Local event form ~
+Local event form ~                              *calendar-event-form*
 
     W                   Save, create, or update the event
     Q                   Discard the form without saving
@@ -222,8 +223,8 @@ Top-level keys ~
 
                                 address_book
                                             Path to a JSON address-book file
-                                            used for omni-completion in diary
-                                            buffers.
+                                            used to complete attendee fields
+                                            in the local event form.
                                             See |calendar-address-book|.
 
               active_diary      Key from diaries_dict to use on startup.
@@ -237,6 +238,9 @@ vim-calendar provides a week-view pane in the right-hand window of the
 calendar tab. It shows a scrollable 24-hour grid with event subjects and
 organizer names. Events can come from a local JSON file or be populated
 dynamically through provider hooks.
+
+To connect vim-calendar to external provides such as Outlook, Google calendar,
+Apple calendar, etc. see |calendar-hooks|.
 
 Built-in local JSON provider ~
 
@@ -260,6 +264,10 @@ event. A split opens below with these editable fields:
     Title       Required
     Start       Required; YYYY-MM-DD HH:MM
     End         Required; YYYY-MM-DD HH:MM
+    Required Attendees
+                Optional; use |i_CTRL-X_CTRL-O| for address-book completion
+    Optional Attendees
+                Optional; use |i_CTRL-X_CTRL-O| for address-book completion
     Organizer   Optional
     Location    Optional
     AllDay      true or false; times are ignored and end date is exclusive
@@ -291,6 +299,8 @@ objects: >
         "start":     "2026-07-27T09:00:00",
         "end":       "2026-07-27T10:00:00",
         "subject":   "Team Meeting",
+        "required_attendees": "Alice <alice@example.com>",
+        "optional_attendees": "Bob <bob@example.com>",
         "organizer": "Alice Smith",
         "location":  "Room A",
         "body":      "Agenda:\n1. Sprint review\n2. Planning",
@@ -306,7 +316,8 @@ objects: >
     ]
 <
 Required fields: `start`, `end`, `subject`
-Optional fields: `organizer`, `location`, `body`, `id`, `allday`
+Optional fields: `organizer`, `location`, `body`, `id`, `allday`,
+`required_attendees`, `optional_attendees`
 
 
 All-day events ~
@@ -322,6 +333,12 @@ The week view can also be populated through the two hook functions
 fetch_events and manage_events hooks. This is handy when we want the calendar
 to be connected to a Google calendar, to Outlook or to an Apple calendar.
 
+Outlook integration works out of the box if the plugin vim-outlook is
+installed. Such a plugin provide the following hook functions:
+>
+    fetch_events:  'g:OutlookCalendarFetchEvents',
+    manage_events: 'g:OutlookCalendarManageEvents'
+<
                                             *calendar-fetch_events-hook*
 The fetch_events hook ~
 
@@ -481,8 +498,10 @@ plugin. The plugin vim-outlook supplies an Outlook implementation.
 ==============================================================================
 ADDRESS BOOK                                    *calendar-address-book*
 
-When a diary has an `address_book` path set, omni-completion (|i_CTRL-X_CTRL-O|)
-is automatically configured on any diary file opened via |<CR>| or |<C-CR>|.
+When a diary has an `address_book` path set, omni-completion
+(|i_CTRL-X_CTRL-O|) is available in the `Required Attendees` and
+`Optional Attendees` fields of |calendar-event-form|. Diary pages do not
+change their 'omnifunc' setting.
 
 Address book JSON format ~
 
@@ -501,15 +520,14 @@ the two plugins can share the same file: >
 <
 Using completion ~
 
-In any diary file opened from the calendar, type a partial name or email
-fragment and press |CTRL-X| |CTRL-O|.  The completion menu shows:
+In either attendee field, type a partial name or email fragment and press
+|CTRL-X| |CTRL-O|. The completion menu shows:
 
     word  →  Alice Smith <alice@example.com>   (inserted on selection)
     abbr  →  Alice Smith
     menu  →  alice@example.com
 
-The token boundary is at the last whitespace, colon, comma, or semicolon
-before the cursor.
+Separate multiple attendees with commas or semicolons.
 
 Generating the address book ~
 
@@ -531,6 +549,14 @@ The plugin fires one event just before rendering the calendar view: >
 
     autocmd User CalendarBeforeShow  # your code here
 <
+The built-in local provider also fires events after successfully persisting a
+new or modified event: >
+
+    autocmd User CalendarEventCreated  # a new event was saved
+    autocmd User CalendarEventModified # an existing event was updated
+<
+The persisted event dictionary is available as `g:calendar_event` while these
+autocommands run.
 
 ==============================================================================
 SECURITY AND PRIVACY                           *calendar-security*
@@ -561,6 +587,7 @@ CODE STRUCTURE                                     *calendar-code-structure*
 - `local_provider.vim` implements the default persistent JSON calendar.
 - `help_popup.vim` and `highlights.vim` contain focused UI behavior.
 
+The key for making all machinery to work is thanks to the
 
 ==============================================================================
 LICENSE                                         *calendar-license*

@@ -2,24 +2,31 @@
 
 A Vim 9.0 ported and refactored version of [mattn/calendar-vim][1].
 
-> Screencast: _coming soon_
+![vim-calendar week view](Calendar_demo.png)
 
 ## What it does
 
 - Split-window calendar display
+- Events preview with `K` key,
 - ISO (EU), US, and work-week (Mon–Fri) layouts
 - Week view panel with calendar events integration
 - Multiple configurable diary books
-- Address-book omni-completion in diary files
+- Address-book completion for event attendees
 - Configurable holidays
 
 ## Installation
 
-Install with your preferred plugin manager (minpac, vim-plug, lazy.nvim, etc.).
+Install with your preferred plugin manager (minpac, vim-plug, etc.).
 
 Requires **Vim 9.0** or later.
 
-## Commands
+## Usage
+
+The best way to learn to use vim-calendar is to run `:CalendarToggle` and hit
+`?`.
+Note that different windows shows different helps.
+
+#### Additional Commands
 
 | Command | Description |
 |---|---|
@@ -31,7 +38,7 @@ Requires **Vim 9.0** or later.
 
 Press `?` inside the calendar for a full key-binding reference.
 
-## Minimal configuration
+#### Minimal configuration
 
 ```vim
 g:calendar_config = {
@@ -49,34 +56,28 @@ g:calendar_config = {
 }
 ```
 
-## Calendar provider integration
+## External calendars integration
 
 Events in the calendar can be created, edited, stored and fetched from a
-locally stored JSON file or from an external source such as Outlook.
+locally stored JSON file or from an external source (e.g. Google Calendar,
+Apple Calendar, Outlook, etc).
+
+Integration with Outlook works out of the box if [vim-outlook][2] is installed.
+For other calendars integration some work is required.
 See `:help calendar` for more info.
 
-### Built-in local event form
+## Built-in event form
 
-When a diary defines neither `fetch_events` nor `manage_events`, vim-calendar
-uses its built-in local JSON provider. In `__WeekView__`, press `m` on an
-empty hour cell to create an event, or on an existing event to edit it.
+For a diary without custom provider hooks, press `m` in `__WeekView__` to
+create or edit an event. The form supports title, start/end, required and
+optional attendees, organizer, location, all-day status, and body. In either
+attendee field, use `<C-X><C-O>` to complete entries from that diary's
+`address_book`. Diary pages do not change `'omnifunc'`.
 
-`__CalendarEventForm__` supports these fields:
+Press `W` to save, `Q` to discard, or `?` for form help. After a successful
+local save, the plugin fires `User CalendarEventCreated` or
+`User CalendarEventModified`; the saved dictionary is in `g:calendar_event`.
 
-| Field | Format |
-|---|---|
-| `Title` | Required |
-| `Start`, `End` | Required; `YYYY-MM-DD HH:MM` |
-| `Organizer`, `Location` | Optional |
-| `AllDay` | `true` or `false`; times are ignored and the end date is exclusive |
-| `Body` | Optional; may continue on following lines |
-
-Press `W` to save/create/update, `Q` to discard, or `?` for field help.
-`:w` also saves the form. Event IDs are generated and preserved internally.
-In `__WeekView__`, `d` deletes a local event. Provider-backed calendars may
-interpret `d` as the appropriate decline, cancellation, or deletion action.
-Use `a` to accept an invitation and `v` to respond tentatively when supported
-by the active provider. `t` remains “go to current week.”
 
 ## Security and privacy
 
@@ -99,4 +100,7 @@ retention requirements. The software is provided "as is" under the BSD
 
 BSD-3.
 
+<!-- DO NOT REMOVE vim-markdown-extras references DO NOT REMOVE-->
+
 [1]: https://github.com/mattn/calendar-vim
+[2]: https://github.com/ubaldot/vim-outlook

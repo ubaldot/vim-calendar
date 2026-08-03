@@ -31,7 +31,8 @@ def ConfigureProvider(name: string, diary_config: dict<any>)
   var fetch_func = get(diary_config, 'fetch_events', '')
   var manage_func = get(diary_config, 'manage_events', '')
   if empty(fetch_func) && empty(manage_func)
-    local_provider.Configure(name, get(diary_config, 'events_file', ''))
+    local_provider.Configure(name, get(diary_config, 'events_file', ''),
+      get(diary_config, 'address_book', ''))
     week_view.SetProviderFuncs(
       'g:CalendarLocalFetchEvents',
       'g:CalendarLocalManageEvents'
@@ -399,7 +400,6 @@ def OpenDiaryPage(day: number, month: number, year: number, week: number)
     setlocal nowinfixbuf
   endif
   execute $"edit {file}"
-  diary.ApplyAddressBook()
 enddef
 
 # Close the calendar tab and open the diary entry for the day (or month when
@@ -436,12 +436,12 @@ def ActionOpenDiaryAndClose()
     setlocal nowinfixbuf
   endif
   execute $"edit {file}"
-  diary.ApplyAddressBook()
 enddef
 
 # Public bridge used by the global omnifunc wrapper in plugin/calendar.vim.
 export def AddressBookComplete(findstart: number, base: string): any
-  return diary.Complete(findstart, base)
+  return diary.Complete(findstart, base,
+    get(b:, 'calendar_address_book_path', cfg_address_book_path))
 enddef
 
 # Build buffer-local key mappings for calendar interactions.

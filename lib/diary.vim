@@ -2,7 +2,7 @@ vim9script
 
 import autoload "./calendar_view.vim"
 
-# Diary file preparation and address-book completion.
+# Diary file preparation and event-attendee completion.
 
 var cfg_path = '~/my_diary'
 var cfg_resolution = 'month'
@@ -50,16 +50,8 @@ export def PrepareFile(year: number, month: number, day: number): string
   return fnameescape(calendar_view.DiaryFilePath(year, month, day))
 enddef
 
-# Enable address-book completion in the current diary buffer when configured.
-export def ApplyAddressBook()
-  if empty(cfg_address_book) || !filereadable(expand(cfg_address_book))
-    return
-  endif
-  setlocal omnifunc=CalendarAddressBookComplete
-enddef
-
-def LoadAddressBook(): list<any>
-  var path = expand(cfg_address_book)
+def LoadAddressBook(address_book: string = ''): list<any>
+  var path = expand(empty(address_book) ? cfg_address_book : address_book)
   if !filereadable(path)
     return []
   endif
@@ -72,23 +64,30 @@ def LoadAddressBook(): list<any>
 enddef
 
 # Omnifunc for address-book entries shaped as {name, email}.
-export def Complete(findstart: number, base: string): any
+export def Complete(findstart: number, base: string,
+                    address_book: string = ''): any
   if findstart
-    var c = col('.') - 1
     var line = getline('.')
-    while c > 0 && line[c - 1] !~ '[ \t:,;]'
+    if line !~# '^\%(Required\|Optional\) Attendees:'
+      return -2
+    endif
+    var c = col('.') - 1
+    while c > 0 && line[c - 1] !~ '[:,;]'
       c -= 1
+    endwhile
+    while c < col('.') - 1 && line[c] =~# '\s'
+      c += 1
     endwhile
     return c
   endif
 
   var prefix = tolower(base)
-  return LoadAddressBook()
+  return LoadAddressBook(address_book)
     ->filter((_, entry) =>
         type(entry) == v:t_dict
         && (empty(prefix)
-          || tolower(get(entry, 'name', '')) =~# prefix
-          || tolower(get(entry, 'email', '')) =~# prefix))
+          || stridx(tolower(get(entry, 'name', '')), prefix) >= 0
+          || stridx(tolower(get(entry, 'email', '')), prefix) >= 0))
     ->mapnew((_, entry) => ({
       word: $'{get(entry, "name", "")} <{get(entry, "email", "")}>',
       abbr: get(entry, 'name', ''),

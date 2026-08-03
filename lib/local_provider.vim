@@ -5,6 +5,7 @@ vim9script
 import autoload "./backend.vim"
 
 var events_path = ''
+var address_book_path = ''
 
 def DefaultDataDir(): string
   if has('win32') && !empty($LOCALAPPDATA)
@@ -16,7 +17,9 @@ def DefaultDataDir(): string
   return expand('~/.local/share/vim-calendar')
 enddef
 
-export def Configure(diary_name: string, configured_path: string = '')
+export def Configure(diary_name: string, configured_path: string = '',
+                     configured_address_book: string = '')
+  address_book_path = configured_address_book
   if !empty(configured_path)
     events_path = expand(configured_path)
     return
@@ -128,8 +131,8 @@ def ParseFormLines(lines: list<string>): dict<string>
       endif
       break
     endif
-    if index(['Title', 'Start', 'End', 'Organizer', 'Location', 'AllDay'],
-        name) >= 0
+    if index(['Title', 'Start', 'End', 'Required Attendees',
+        'Optional Attendees', 'Organizer', 'Location', 'AllDay'], name) >= 0
       fields[name] = trim(line[idx + 1 :])
     endif
   endfor
@@ -180,6 +183,10 @@ def BuildEventFromForm(fields: dict<string>): dict<any>
     start: substitute(start, ' ', 'T', ''),
     end: substitute(end, ' ', 'T', ''),
     subject: subject,
+    required_attendees: get(fields, 'Required Attendees',
+      get(form_existing, 'required_attendees', '')),
+    optional_attendees: get(fields, 'Optional Attendees',
+      get(form_existing, 'optional_attendees', '')),
     organizer: get(fields, 'Organizer',
       get(form_existing, 'organizer', '')),
     location: get(fields, 'Location', ''),
@@ -198,6 +205,8 @@ def FormLines(existing: dict<any>): list<string>
     $'Title: {get(existing, "subject", "")}',
     $'Start: {FormDateTime(get(existing, "start", ""))}',
     $'End: {FormDateTime(get(existing, "end", ""))}',
+    $'Required Attendees: {get(existing, "required_attendees", "")}',
+    $'Optional Attendees: {get(existing, "optional_attendees", "")}',
     $'Organizer: {get(existing, "organizer", "")}',
     $'Location: {get(existing, "location", "")}',
     $'AllDay: {string(get(existing, "allday", false))}',
@@ -224,6 +233,8 @@ def ShowFormHelp()
     'Title       required',
     'Start       required, YYYY-MM-DD HH:MM',
     'End         required, YYYY-MM-DD HH:MM',
+    'Required Attendees  optional; CTRL-X CTRL-O completes entries',
+    'Optional Attendees  optional; CTRL-X CTRL-O completes entries',
     'Organizer   optional',
     'Location    optional',
     'AllDay      true or false; times are ignored',
@@ -243,6 +254,7 @@ enddef
 # BufWriteCmd handler for the event form buffer. Keeps the buffer open (and
 # modified) when validation fails, so the user can fix the offending field.
 def SaveForm()
+  var form_bufnr = bufnr()
   var event = BuildEventFromForm(ParseFormLines(getline(1, '$')))
   if empty(event)
     return
@@ -269,14 +281,20 @@ def SaveForm()
     return
   endif
 
-  setlocal nomodified
+  setbufvar(form_bufnr, '&modified', 0)
+  g:calendar_event = deepcopy(event)
+  execute empty(existing_id)
+    ? 'silent! doautocmd User CalendarEventCreated'
+    : 'silent! doautocmd User CalendarEventModified'
   echo empty(existing_id)
     ? '[Calendar] Local event created.'
     : '[Calendar] Local event updated.'
   if exists(':CalendarRefresh') == 2
     execute 'CalendarRefresh'
   endif
-  bwipeout!
+  if bufexists(form_bufnr)
+    execute $'bwipeout! {form_bufnr}'
+  endif
 enddef
 
 def OpenForm(existing: dict<any>): bool
@@ -301,6 +319,8 @@ def OpenForm(existing: dict<any>): bool
   execute $'file {FORM_BUF_NAME}'
   setlocal buftype=acwrite bufhidden=wipe noswapfile nobuflisted
   setlocal nonumber norelativenumber
+  setlocal omnifunc=CalendarAddressBookComplete
+  b:calendar_address_book_path = address_book_path
 
   setline(1, FormLines(existing))
   setlocal nomodified

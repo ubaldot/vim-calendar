@@ -176,7 +176,10 @@ def BuildMonthLines(year: number, month: number): dict<any>
 
   for row_idx in range(0, len(weeks) - 1)
     var row = weeks[row_idx]
-    var line = WeekNumberEnabled() ? $"{printf('%2d', len(row) > day_cols ? row[day_cols] : 0)} " : ' '
+    var line = WeekNumberEnabled()
+      ? $"{printf('%2d', len(row) > day_cols ? row[day_cols] : 0)} "
+      : ' '
+
     for col_idx in range(0, day_cols - 1)
       var d = row[col_idx]
       if d == 0
@@ -232,7 +235,11 @@ def BuildMonthLines(year: number, month: number): dict<any>
 enddef
 
 # Shift match positions by line/column offsets.
-def ShiftPositions(pos: list<list<number>>, line_off: number, col_off: number): list<list<number>>
+def ShiftPositions(
+    pos: list<list<number>>,
+    line_off: number,
+    col_off: number
+    ): list<list<number>>
   return pos->mapnew((_, p) => [p[0] + line_off, p[1] + col_off, p[2]])
 enddef
 
@@ -273,7 +280,15 @@ def BuildVerticalComposite(months: list<dict<any>>): dict<any>
     line_cursor += 1
   endfor
 
-  return {lines: out_lines, blocks: blocks, today: today_all, sat: sat_all, sun: sun_all, holiday: holiday_all, week: week_all}
+  return {
+    lines: out_lines,
+    blocks: blocks,
+    today: today_all,
+    sat: sat_all,
+    sun: sun_all,
+    holiday: holiday_all,
+    week: week_all
+  }
 enddef
 
 # Append a diary-selector section to lines when multiple diaries are configured.
