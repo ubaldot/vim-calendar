@@ -56,12 +56,33 @@ export def Apply(view: dict<any>, week_num_enabled: bool)
   matchadd('CalWeekdays', '^\s*\%(WK\s\+\)\?\%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\%( \%(Mo\|Tu\|We\|Th\|Fr\|Sa\|Su\)\)\+\s*$', 22)
 enddef
 
+def DefineTodayHighlight()
+  if !empty(hlget('CalToday'))
+    return
+  endif
+  var visual = hlget('Visual', true)
+  if empty(visual)
+    highlight default CalToday term=bold cterm=bold gui=bold
+    return
+  endif
+
+  var today = visual[0]
+  remove(today, 'id')
+  today.name = 'CalToday'
+  for mode in ['term', 'cterm', 'gui']
+    var attributes = get(today, mode, {})
+    attributes.bold = true
+    today[mode] = attributes
+  endfor
+  hlset([today])
+enddef
+
 hi def link CalSaturday LineNr
 hi def link CalSunday Error
 hi def link CalRuler Normal
 hi def link CalWeekdays WarningMsg
 hi def link CalWeeknm Visual
-hi def CalToday term=bold cterm=bold gui=bold
+DefineTodayHighlight()
 hi def link CalHeader WarningMsg
 hi def link CalHoliday Error
 hi def link CalCurrList Error

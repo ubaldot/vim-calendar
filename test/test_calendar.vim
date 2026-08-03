@@ -66,6 +66,15 @@ def g:Test_today_highlight_is_bold()
   assert_match('cterm=bold', definition)
   assert_match('gui=bold', definition)
   assert_notmatch('links to Visual', definition)
+
+  var today = hlget('CalToday', true)[0]
+  var visual = hlget('Visual', true)[0]
+  assert_equal(get(visual, 'guibg', ''), get(today, 'guibg', ''))
+  assert_equal(get(visual, 'ctermbg', ''), get(today, 'ctermbg', ''))
+  assert_equal(get(get(visual, 'term', {}), 'reverse', false),
+    get(get(today, 'term', {}), 'reverse', false))
+  assert_equal(get(get(visual, 'cterm', {}), 'reverse', false),
+    get(get(today, 'cterm', {}), 'reverse', false))
 enddef
 
 def g:Test_calendar_reuses_stale_hidden_buffer()
