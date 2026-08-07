@@ -55,6 +55,14 @@ export def ShowWeek()
     't  go to current week',
     '<F5>  refresh appointments',
     'q or <Esc>  close appointment details',
+    '',
+    'Layout',
+    'One line per half hour: an event spans one line per half hour',
+    'it lasts, so a 1.5-hour event covers three lines.',
+    'Conflicting events share the day column side by side,',
+    'separated by ┆, and stay aligned with the time column.',
+    'A title that does not fit ends with ...; the organizer',
+    'is shown in brackets on the last line of the event.',
   ]
   if popup_id > 0
     popup_close(popup_id)

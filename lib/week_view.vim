@@ -16,16 +16,29 @@ export const WEEK_HDR_BUF_NAME = '__WeekHeader__'
 const WEEK_TIME_COL = 8
 const WEEK_DAY_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
+# The hour grid has one line per half hour, so an event spans as many lines as
+# it lasts half hours: a 1.5-hour event covers 3 lines.  Hour separators are
+# drawn between hours and do not count towards an event's span.
+const ROWS_PER_HOUR = 2
+const TOTAL_ROWS    = 24 * ROWS_PER_HOUR
+const LINES_PER_HOUR = ROWS_PER_HOUR + 1   # 2 half-hour rows + 1 separator
+
+# Separates side-by-side lanes inside one day cell.  Deliberately different
+# from the '│' used for day boundaries so a lane split cannot be mistaken for
+# the start of the next day.
+const LANE_SEP = '┆'
+
 var week_day_col          = 16   # cell width; set via Configure()
 var cfg_week_display_type = 'eu' # 'eu' | 'us' | 'work'; set via Configure()
 var manage_events_func = ''
 
-# Maps body-buffer line number (as string) → 7-element list of appointment
-# dicts, one per day column.  Empty dict means no appointment in that cell.
+# Maps body-buffer line number (as string) → list of
+# {first, last, event} screen-column spans, one per rendered event block on
+# that line.  A day column holds several spans when events conflict.
 # Rebuilt on every RenderWeekView call.
 var appt_line_map: dict<list<dict<any>>> = {}
 var allday_line_map: dict<dict<any>> = {}
-var slot_line_hour: dict<number> = {}
+var slot_line_time: dict<dict<number>> = {}
 var displayed_dates: list<string> = []
 
 # Set the active diary's provider functions and clear the week cache.
@@ -142,8 +155,166 @@ def CellText(text: string): string
   return $' {content}'
 enddef
 
-def FormatEventCells(subject: string, organizer: string): list<string>
-  return [CellText(subject), CellText($'({organizer})')]
+# Shorten text to `width` cells, marking the cut with '...'.
+def Ellipsis(text: string, width: number): string
+  if width <= 3
+    return TruncateToWidth(text, width)
+  endif
+  return TruncateToWidth(text, width - 3) .. '...'
+enddef
+
+# Shorten only when the text does not already fit.
+def FitOrEllipsis(text: string, width: number): string
+  return strdisplaywidth(text) <= width ? text : Ellipsis(text, width)
+enddef
+
+# Convert 'HH:MM' to the index of the half-hour row that contains it.
+def TimeToRow(hhmm: string): number
+  var parts = split(hhmm, ':')
+  if len(parts) < 2
+    return 0
+  endif
+  return str2nr(parts[0]) * ROWS_PER_HOUR + (str2nr(parts[1]) >= 30 ? 1 : 0)
+enddef
+
+# Convert 'HH:MM' to the first row *after* the event, rounding a partial half
+# hour up so a 09:00–10:15 event still covers the 10:00 row.
+def TimeToEndRow(hhmm: string): number
+  var parts = split(hhmm, ':')
+  if len(parts) < 2
+    return 0
+  endif
+  var minutes = str2nr(parts[0]) * 60 + str2nr(parts[1])
+  return (minutes + 29) / 30
+enddef
+
+# Return [start_row, span] for an event, clamped to the visible day.
+# Events that end on a later day (or carry a malformed end) run to midnight.
+def EventRows(ev: dict<any>): list<number>
+  var start_row = TimeToRow(get(ev, 'start', '00:00'))
+  var end_row   = TimeToEndRow(get(ev, 'end', ''))
+  var same_day  = empty(get(ev, 'end_date', ''))
+    || get(ev, 'end_date', '') ==# strpart(get(ev, 'provider_start', ''), 0, 10)
+  if !same_day || end_row <= start_row
+    end_row = TOTAL_ROWS
+  endif
+  return [start_row, max([1, min([end_row, TOTAL_ROWS]) - start_row])]
+enddef
+
+# Place a day's events into lanes so conflicting events sit side by side.
+# Greedy interval colouring: an event reuses the leftmost lane that is already
+# free at its start row, so non-overlapping events share a lane.
+# Returns a list of {event, row, span, lane}.
+def AssignLanes(evs: list<dict<any>>): list<dict<any>>
+  var ordered = copy(evs)
+  sort(ordered, (a, b) => {
+    var ra = EventRows(a)
+    var rb = EventRows(b)
+    return ra[0] != rb[0] ? ra[0] - rb[0] : rb[1] - ra[1]
+  })
+  var placed: list<dict<any>> = []
+  var lane_free: list<number> = []
+  for ev in ordered
+    var rows = EventRows(ev)
+    var lane = -1
+    for i in range(len(lane_free))
+      if lane_free[i] <= rows[0]
+        lane = i
+        break
+      endif
+    endfor
+    if lane < 0
+      lane_free->add(0)
+      lane = len(lane_free) - 1
+    endif
+    lane_free[lane] = rows[0] + rows[1]
+    placed->add({event: ev, row: rows[0], span: rows[1], lane: lane})
+  endfor
+  return placed
+enddef
+
+# Split a day cell of `total` cells into `n` lane widths, allowing for the
+# LANE_SEP characters between them.  Leftover cells go to the leftmost lanes.
+def LaneWidths(total: number, n: number): list<number>
+  var usable = total - (n - 1)
+  var base   = usable / n
+  var extra  = usable % n
+  var widths: list<number> = []
+  for i in range(n)
+    widths->add(base + (i < extra ? 1 : 0))
+  endfor
+  return widths
+enddef
+
+# Word-wrap `text` into exactly `max_lines` lines of at most `width` cells.
+# When text is left over the last line is ellipsised, so the '...' always
+# falls in the title and never in the '(organizer)' line below it.
+def WrapTitle(text: string, width: number, max_lines: number): list<string>
+  var lines: list<string> = []
+  if max_lines <= 0 || width <= 0
+    return lines
+  endif
+  var words = split(text, '\s\+')
+  var cur = ''
+  var i = 0
+  while i < len(words) && len(lines) < max_lines
+    var candidate = empty(cur) ? words[i] : $'{cur} {words[i]}'
+    if strdisplaywidth(candidate) <= width
+      cur = candidate
+      i += 1
+    elseif empty(cur)
+      # A single word wider than the lane: hard-break it.
+      var head = TruncateToWidth(words[i], width)
+      words[i] = strcharpart(words[i], strcharlen(head))
+      lines->add(head)
+    else
+      lines->add(cur)
+      cur = ''
+    endif
+  endwhile
+  if len(lines) < max_lines && !empty(cur)
+    lines->add(cur)
+    cur = ''
+  endif
+  if (!empty(cur) || i < len(words)) && !empty(lines)
+    lines[-1] = Ellipsis(lines[-1], width)
+  endif
+  while len(lines) < max_lines
+    lines->add('')
+  endwhile
+  return lines
+enddef
+
+# Render one event as exactly `span` cell strings: the wrapped title, then
+# '(organizer)' on the last line.  A single-row event shows the title only —
+# there is no line left for the organizer.
+def EventCellLines(ev: dict<any>, span: number, width: number): list<string>
+  var text_width = width - 1
+  var organizer  = get(ev, 'organizer', '')
+  var with_org   = span > 1 && !empty(organizer)
+  var title_rows = with_org ? span - 1 : span
+  var cells: list<string> = []
+  for line in WrapTitle(get(ev, 'subject', ''), text_width, title_rows)
+    cells->add(empty(line) ? '' : $' {line}')
+  endfor
+  if with_org
+    cells->add($' {FitOrEllipsis($"({organizer})", text_width)}')
+  endif
+  return cells
+enddef
+
+# Join one row of lane texts into a full day cell of exactly week_day_col cells.
+# Rows with no event in any lane render as one plain cell, so a conflict early
+# in the day does not draw a lane rule down the whole column.
+def DayCellStr(texts: list<string>, widths: list<number>, split: bool): string
+  if !split
+    return repeat(' ', week_day_col)
+  endif
+  var parts: list<string> = []
+  for i in range(len(texts))
+    parts->add(FitCell(texts[i], widths[i]))
+  endfor
+  return join(parts, LANE_SEP)
 enddef
 
 def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
@@ -158,12 +329,6 @@ def WeekHeaderStr(wdays: list<dict<any>>, week_num: number): string
     first.day, MonthName(first.month)[: 2],
     last.day,  MonthName(last.month)[: 2],
     last.year, week_num)
-enddef
-
-# Return events from the events dict that start in the given hour slot.
-def FindHourEvents(events: dict<any>, date_key: string, hour: number): list<dict<any>>
-  return copy(get(events, date_key, []))->filter(
-    (_, ev) => str2nr(split(get(ev, 'start', '00:00'), ':')[0]) == hour)
 enddef
 
 # Render banner rows for all-day events above the hour grid.
@@ -328,48 +493,95 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   # ── Body (hour grid) ──────────────────────────────────────────────────────
   var body_lines: list<string> = []
   appt_line_map = {}
-  slot_line_hour = {}
+  slot_line_time = {}
   displayed_dates = display_wdays->mapnew((_, d) =>
     printf('%04d-%02d-%02d', d.year, d.month, d.day))
+
+  # Lay every day out first: lanes are a per-day property, so the column keeps
+  # the same lane geometry for the whole day and events stay aligned.
+  var lane_widths: list<list<number>> = []
+  var cell_text:  list<list<list<string>>> = []
+  var cell_event: list<list<list<dict<any>>>> = []
+  for date_key in displayed_dates
+    var placed = AssignLanes(get(events, date_key, []))
+    var n_lanes = 1
+    for p in placed
+      if p.lane + 1 > n_lanes
+        n_lanes = p.lane + 1
+      endif
+    endfor
+    var widths = LaneWidths(week_day_col, n_lanes)
+
+    var rows_text:  list<list<string>> = []
+    var rows_event: list<list<dict<any>>> = []
+    for _ in range(TOTAL_ROWS)
+      var blank_text: list<string> = []
+      var blank_event: list<dict<any>> = []
+      for _l in range(n_lanes)
+        blank_text->add('')
+        blank_event->add({})
+      endfor
+      rows_text->add(blank_text)
+      rows_event->add(blank_event)
+    endfor
+
+    for p in placed
+      var lines = EventCellLines(p.event, p.span, widths[p.lane])
+      for k in range(len(lines))
+        var r = p.row + k
+        if r < TOTAL_ROWS
+          rows_text[r][p.lane] = lines[k]
+          # Every row of the block resolves to the event, including rows whose
+          # text is blank, so the cursor finds it anywhere inside the block.
+          rows_event[r][p.lane] = p.event
+        endif
+      endfor
+    endfor
+
+    lane_widths->add(widths)
+    cell_text->add(rows_text)
+    cell_event->add(rows_event)
+  endfor
+
   var hour7_line = 1
   for h in range(0, 23)
     if h == 7
       hour7_line = len(body_lines) + 1 + &scrolloff
     endif
-    var day_evs: list<list<dict<any>>> = []
-    for d in display_wdays
-      day_evs->add(FindHourEvents(events,
-        printf('%04d-%02d-%02d', d.year, d.month, d.day), h))
-    endfor
-
-    var slots = max([1] + day_evs->mapnew((_, evs) => len(evs)))
-    for k in range(slots)
-      var row1: list<string> = []
-      var row2: list<string> = []
-      var appt_row: list<dict<any>> = []
-      for evs in day_evs
-        if k < len(evs)
-          var [l1, l2] = FormatEventCells(get(evs[k], 'subject', ''),
-                                          get(evs[k], 'organizer', ''))
-          row1->add(l1)
-          row2->add(l2)
-          appt_row->add(evs[k])
-        else
-          row1->add('')
-          row2->add('')
-          appt_row->add({})
-        endif
+    for half in range(ROWS_PER_HOUR)
+      var r = h * ROWS_PER_HOUR + half
+      var day_cells: list<string> = []
+      for di in range(n_days)
+        var occupied = false
+        for ev in cell_event[di][r]
+          if !empty(ev)
+            occupied = true
+            break
+          endif
+        endfor
+        day_cells->add(DayCellStr(cell_text[di][r], lane_widths[di], occupied))
       endfor
-      var subj_lnum = len(body_lines) + 1
-      body_lines->add(WeekDataRow(k == 0 ? printf('%3d', h) : '', row1))
-      var org_lnum  = len(body_lines) + 1
-      body_lines->add(WeekDataRow('', row2))
-      slot_line_hour[string(subj_lnum)] = h
-      slot_line_hour[string(org_lnum)] = h
-      # Both subject and organizer lines resolve to the same appointment row.
-      if !empty(filter(copy(appt_row), (_, v) => !empty(v)))
-        appt_line_map[string(subj_lnum)] = appt_row
-        appt_line_map[string(org_lnum)]  = appt_row
+      var lnum = len(body_lines) + 1
+      body_lines->add(WeekDataRow(half == 0 ? printf('%3d', h) : '', day_cells))
+      slot_line_time[string(lnum)] = {hour: h, minute: half * 30}
+
+      # Record the screen-column span of every event block on this line.
+      var spans: list<dict<any>> = []
+      for di in range(n_days)
+        var lane_start = WEEK_TIME_COL + 2 + di * (week_day_col + 1)
+        for l in range(len(lane_widths[di]))
+          if !empty(cell_event[di][r][l])
+            spans->add({
+              first: lane_start,
+              last: lane_start + lane_widths[di][l] - 1,
+              event: cell_event[di][r][l],
+            })
+          endif
+          lane_start += lane_widths[di][l] + 1
+        endfor
+      endfor
+      if !empty(spans)
+        appt_line_map[string(lnum)] = spans
       endif
     endfor
     body_lines->add(WeekSepLine('┼', n_days))
@@ -479,9 +691,9 @@ export def RescheduleReminders()
 enddef
 
 # Return the appointment dict under the cursor in the __WeekView__ buffer,
-# or {} if the cursor is on a separator, time column, or empty cell.
-# col_idx (0-6) is derived from the fixed column widths:
-#   WEEK_TIME_COL chars + '│' then each day = WEEK_DAY_COL chars + '│'
+# or {} if the cursor is on a separator, the time column, or an empty cell.
+# Resolution uses the screen-column spans recorded while rendering, so it is
+# correct even where conflicting events split a day into narrow lanes.
 export def GetEventAtCursor(): dict<any>
   if bufname('%') ==# WEEK_HDR_BUF_NAME
     var banner = get(allday_line_map, string(line('.')), {})
@@ -491,44 +703,47 @@ export def GetEventAtCursor(): dict<any>
       ? banner.event
       : {}
   endif
-  var row = get(appt_line_map, string(line('.')), [])
-  if empty(row)
+  var spans = get(appt_line_map, string(line('.')), [])
+  if empty(spans)
     return {}
   endif
   # Screen columns are used because '│' separators and event text may be
   # multibyte: byte columns would drift away from the rendered cell layout.
-  # The time column occupies screen cols 1..WEEK_TIME_COL, then WEEK_TIME_COL+1
-  # is '│'.
-  if virtcol('.') <= WEEK_TIME_COL + 1
-    return {}
-  endif
-  var col_idx = (virtcol('.') - WEEK_TIME_COL - 2) / (week_day_col + 1)
-  if col_idx < 0 || col_idx >= len(row)
-    return {}
-  endif
-  return row[col_idx]
+  var vcol = virtcol('.')
+  for span in spans
+    if vcol >= span.first && vcol <= span.last
+      return span.event
+    endif
+  endfor
+  return {}
 enddef
 
+# Return {date, hour, minute} for the half-hour cell under the cursor.
 export def GetSlotAtCursor(): dict<any>
   var key = string(line('.'))
-  if !has_key(slot_line_hour, key) || virtcol('.') <= WEEK_TIME_COL + 1
+  if !has_key(slot_line_time, key) || virtcol('.') <= WEEK_TIME_COL + 1
     return {}
   endif
   var col_idx = (virtcol('.') - WEEK_TIME_COL - 2) / (week_day_col + 1)
   if col_idx < 0 || col_idx >= len(displayed_dates)
     return {}
   endif
-  return {date: displayed_dates[col_idx], hour: slot_line_hour[key]}
+  var slot = slot_line_time[key]
+  return {date: displayed_dates[col_idx], hour: slot.hour, minute: slot.minute}
 enddef
 
-def SlotEnd(date_key: string, hour: number): list<any>
-  if hour < 23
-    return [date_key, hour + 1]
+# Return [date, hour, minute] one hour after the given slot.
+def SlotEnd(date_key: string, hour: number, minute: number): list<any>
+  var minutes = hour * 60 + minute + 60
+  if minutes < 24 * 60
+    return [date_key, minutes / 60, minutes % 60]
   endif
   var parts = split(date_key, '-')
   var next = backend.JDNToDate(backend.DateToJDN(
     str2nr(parts[0]), str2nr(parts[1]), str2nr(parts[2])) + 1)
-  return [printf('%04d-%02d-%02d', next.year, next.month, next.day), 0]
+  minutes -= 24 * 60
+  return [printf('%04d-%02d-%02d', next.year, next.month, next.day),
+    minutes / 60, minutes % 60]
 enddef
 
 def ComposeAppointment()
@@ -541,9 +756,9 @@ def ComposeAppointment()
     echoerr '[Calendar] No manage_events hook is configured.'
     return
   endif
-  var end_slot = SlotEnd(slot.date, slot.hour)
-  var start = $'{slot.date} {printf("%02d:00", slot.hour)}'
-  var end = $'{end_slot[0]} {printf("%02d:00", end_slot[1])}'
+  var end_slot = SlotEnd(slot.date, slot.hour, slot.minute)
+  var start = $'{slot.date} {printf("%02d:%02d", slot.hour, slot.minute)}'
+  var end = $'{end_slot[0]} {printf("%02d:%02d", end_slot[1], end_slot[2])}'
   var result = function(manage_events_func)({
     action: 'create',
     start: start,
@@ -676,6 +891,8 @@ def ShowAppointmentDetails()
   var end_t   = get(appt, 'end',       '')
   var org     = get(appt, 'organizer', '')
   var loc     = get(appt, 'location',  '')
+  var req     = get(appt, 'required_attendees', '')
+  var opt     = get(appt, 'optional_attendees', '')
   var body    = get(appt, 'body',      '')
 
   if !empty(start_t) || !empty(end_t)
@@ -686,6 +903,12 @@ def ShowAppointmentDetails()
   endif
   if !empty(loc)
     lines->add($' Location:   {loc}')
+  endif
+  if !empty(req)
+    lines->add($' Required:   {req}')
+  endif
+  if !empty(opt)
+    lines->add($' Optional:   {opt}')
   endif
   if !empty(body)
     var compact = StripBoilerplate(CompactBody(body))
@@ -730,6 +953,8 @@ def OpenAppointmentBody()
   var end_t   = get(appt, 'end',     '')
   var org   = get(appt, 'organizer', '')
   var loc   = get(appt, 'location',  '')
+  var req   = get(appt, 'required_attendees', '')
+  var opt   = get(appt, 'optional_attendees', '')
   var body  = get(appt, 'body',      '')
 
   var lines: list<string> = []
@@ -737,6 +962,8 @@ def OpenAppointmentBody()
   lines->add($'Time:      {start_t} – {end_t}')
   if !empty(org) | lines->add($'Organizer: {org}') | endif
   if !empty(loc) | lines->add($'Location:  {loc}') | endif
+  if !empty(req) | lines->add($'Required Attendees: {req}') | endif
+  if !empty(opt) | lines->add($'Optional Attendees: {opt}') | endif
   lines->add(repeat('─', 60))
   lines->add('')
   if !empty(body)

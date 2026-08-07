@@ -87,12 +87,14 @@ Calendar pane ~
 Week view (right pane) ~
 
     K                   Show a brief appointment preview popup at cursor
-                        (subject, time, organizer, location, body excerpt).
+                        (subject, time, organizer, required and optional
+                        attendees, location, body excerpt).
                         Meeting boilerplate (Teams/Zoom links, rule lines)
                         is automatically stripped from the preview.
     |<CR>|                Open the full appointment body in a horizontal split
                         below the week view.  The split buffer shows the
-                        complete body including any boilerplate.
+                        organizer, the required and optional attendees and
+                        the complete body including any boilerplate.
     m                   Modify, i.e. create new event or edit the event under
                         the cursor.
                         Providers may restrict editing to the organizer.
@@ -239,6 +241,32 @@ calendar tab. It shows a scrollable 24-hour grid with event subjects and
 organizer names. Events can come from a local JSON file or be populated
 dynamically through provider hooks.
 
+Week view layout ~
+
+The grid has one line per half hour, and every hour is closed by a horizontal
+rule.  An event occupies one line per half hour it lasts, so a 30-minute event
+takes one line, a one-hour event two lines and a 1.5-hour event three lines.
+
+When events overlap, the day column is split into lanes so that conflicting
+events sit side by side and remain aligned with the time column.  Lanes are
+separated by the character `┆`, which is deliberately different from the `│`
+used for the day borders.  The number of lanes is constant for the whole day,
+so an event always keeps the same width from its first line to its last.
+
+Inside a cell the subject is wrapped over the available lines and the
+organizer is shown in brackets on the last line of the event.  Text that does
+not fit is truncated with `...`, always before the bracketed organizer.  An
+event that lasts only 30 minutes has a single line and therefore shows the
+truncated subject only.
+
+    9     │ event  ┆       │ foo bar foo ...│
+          │ foo... ┆ eve...│ (john doyle)   │
+    ──────┼────────────────┼────────────────┼
+    10    │ (jac...┆ (jo...│                │
+
+Widen |calendar-config| `week_cell_width` if titles are truncated too
+aggressively on days with many conflicting events.
+
 To connect vim-calendar to external provides such as Outlook, Google calendar,
 Apple calendar, etc. see |calendar-hooks|.
 
@@ -258,8 +286,9 @@ JSON file: >
       active_diary: 'Local',
     }
 <
-Open |:CalendarToggle|, move to an hour cell, and press `m` to create an
-event. A split opens below with these editable fields:
+Open |:CalendarToggle|, move to a half-hour cell, and press `m` to create an
+event starting at that time and lasting one hour.  A split opens below with
+these editable fields:
 
     Title       Required
     Start       Required; YYYY-MM-DD HH:MM

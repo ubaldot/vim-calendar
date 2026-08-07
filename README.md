@@ -11,6 +11,8 @@ A Vim 9.0 ported, refactored and enhanced version of
 - Events preview with `K` key,
 - ISO (EU), US, and work-week (Mon–Fri) layouts
 - Week view panel with calendar events integration
+- Half-hour grid: events span one line per half hour and conflicting
+  events are laid out side by side
 - Multiple configurable diary books
 - Address-book completion for event attendees
 - Configurable holidays

@@ -75,6 +75,24 @@ def g:UnicodeFetchEvents(_request: dict<any>): string
     ['Café', 'Über', 'Naïve', 'Groß', 'Æther', 'Ωmega', 'Ünix'], 'UNI')
 enddef
 
+# Monday: a 1.5-hour event.  Tuesday: a 30-minute event.  Used to check that
+# an event spans one line per half hour.
+def g:SpanFetchEvents(_request: dict<any>): string
+  var tmp = tempname() .. '.json'
+  writefile([json_encode([
+    {start: '2026-07-27T09:00:00', end: '2026-07-27T10:30:00',
+     subject: 'Ninety', organizer: 'Alice', id: 'SPAN-90'},
+    {start: '2026-07-28T12:00:00', end: '2026-07-28T12:30:00',
+     subject: 'Short', organizer: 'Bob', id: 'SPAN-30'},
+  ])], tmp)
+  return tmp
+enddef
+
+# Place the cursor at a screen column: '│' is multibyte, so byte columns drift.
+def CursorAtVcol(lnum: number, vcol: number)
+  cursor(lnum, virtcol2col(0, lnum, vcol))
+enddef
+
 def HasLine(lines: list<string>, pat: string): bool
   return !empty(filter(copy(lines), $'v:val =~ "{pat}"'))
 enddef
@@ -136,8 +154,11 @@ def g:Test_week_view_load_appointments_renders_events()
   week_view.FetchEvents(2026, 7, 27)
 
   var lines = BufLines(week_view.WEEK_BUF_NAME)
-  assert_true(HasLine(lines, 'Team Meeting'),
+  # Monday's events conflict, so "Team Meeting" is wrapped into a narrow lane
+  # and only its first word survives on the 09:00 row.
+  assert_true(HasLine(lines, 'Team'),
     'Expected "Team Meeting" in week view after loading appointments')
+  # Wednesday has no conflict, so the title is rendered in full.
   assert_true(HasLine(lines, 'One-on-One'),
     'Expected "One-on-One" in week view after loading appointments')
 enddef
@@ -151,10 +172,47 @@ def g:Test_week_view_overlapping_events_both_rendered()
   t:cal_week_key = '2026-07-27'
   week_view.FetchEvents(2026, 7, 27)
 
-  # Mon Jul 27 has Team Meeting 09:00 and Overlapping Review 09:30 — both must appear.
+  # Mon Jul 27 has Team Meeting 09:00–10:00 and Overlapping Review 09:30–10:30.
+  # Conflicting events sit side by side in lanes, so the 09:30 row (line 29)
+  # must carry both, separated by a lane rule.
   var lines = BufLines(week_view.WEEK_BUF_NAME)
-  assert_true(HasLine(lines, 'Team Meeting'),    'First overlapping event missing')
-  assert_true(HasLine(lines, 'Overlapping'),     'Second overlapping event missing')
+  assert_true(HasLine(lines, '┆'),
+    'Conflicting events must split the day column into lanes')
+
+  var lane0 = GRID_TIME_COL + 4
+  var lane1 = GRID_TIME_COL + 13
+  CursorAtVcol(29, lane0)
+  assert_equal('Team Meeting',
+    get(week_view.GetEventAtCursor(), 'subject', ''),
+    'First overlapping event missing from lane 0')
+  CursorAtVcol(29, lane1)
+  assert_equal('Overlapping Review',
+    get(week_view.GetEventAtCursor(), 'subject', ''),
+    'Second overlapping event missing from lane 1')
+enddef
+
+# <CR> opens the appointment body and must list both attendee fields.
+def g:Test_week_view_details_show_attendees()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  t:cal_week_key = '2026-07-27'
+  week_view.FetchEvents(2026, 7, 27)
+
+  # Monday 09:00, lane 0: Team Meeting.
+  CursorAtVcol(28, GRID_TIME_COL + 4)
+  execute "normal \<CR>"
+  WaitForAssert(() => assert_true(bufnr(week_view.APPT_BUF_NAME) > 0))
+
+  var lines = BufLines(week_view.APPT_BUF_NAME)
+  assert_true(HasLine(lines, 'Required Attendees: Bob <bob@example.com>'),
+    'Detail buffer must list the required attendees')
+  assert_true(HasLine(lines, 'Optional Attendees: Carol <carol@example.com>'),
+    'Detail buffer must list the optional attendees')
+
+  execute $'bwipeout! {bufnr(week_view.APPT_BUF_NAME)}'
 enddef
 
 def g:Test_week_view_allday_events_in_header()
@@ -219,37 +277,82 @@ def g:Test_get_event_at_cursor()
 
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
-  # Hours 0-8: 9 empty hours × 3 lines (1 slot × 2 rows + separator) = 27 lines.
-  # Hour 9 has 2 overlapping events on Monday (col 0):
-  #   slot 0 subject  → line 28  (Team Meeting)
-  #   slot 0 organizer → line 29
-  #   slot 1 subject  → line 30  (Overlapping Review)
-  # Col 15 is safely within the Monday cell (cols 10-25, WEEK_TIME_COL=8, WEEK_DAY_COL=16).
-  cursor(28, 15)
-  var appt = week_view.GetEventAtCursor()
-  assert_equal('Team Meeting', get(appt, 'subject', ''),
-    'Line 28 col 15 should resolve to Team Meeting')
+  # One line per half hour plus an hour separator, so each hour is 3 lines:
+  # hour h starts on line h * 3 + 1.  Hour 9 → lines 28 (09:00) and 29 (09:30).
+  # Monday's two events conflict, so the column splits into lanes 8 and 7 wide:
+  #   Team Meeting       09:00–10:00 → lane 0, lines 28-29
+  #   Overlapping Review 09:30–10:30 → lane 1, lines 29 and 31
+  var lane0 = GRID_TIME_COL + 4          # inside Monday's first lane
+  var lane1 = GRID_TIME_COL + 13         # inside Monday's second lane
 
-  cursor(30, 15)
-  appt = week_view.GetEventAtCursor()
-  assert_equal('Overlapping Review', get(appt, 'subject', ''),
-    'Line 30 col 15 should resolve to Overlapping Review')
+  CursorAtVcol(28, lane0)
+  assert_equal('Team Meeting', get(week_view.GetEventAtCursor(), 'subject', ''),
+    'The 09:00 row of lane 0 should resolve to Team Meeting')
 
-  # Organizer line of slot 0 must also resolve (same appt_row).
-  cursor(29, 15)
-  appt = week_view.GetEventAtCursor()
-  assert_equal('Team Meeting', get(appt, 'subject', ''),
-    'Organizer line (29) should resolve to same appointment as subject line')
+  CursorAtVcol(29, lane0)
+  assert_equal('Team Meeting', get(week_view.GetEventAtCursor(), 'subject', ''),
+    'The organizer row of lane 0 should resolve to the same event')
 
-  # Separator lines and empty-slot rows must return {}.
-  cursor(1, 15)
+  CursorAtVcol(29, lane1)
+  assert_equal('Overlapping Review',
+    get(week_view.GetEventAtCursor(), 'subject', ''),
+    'The 09:30 row of lane 1 should resolve to Overlapping Review')
+
+  CursorAtVcol(31, lane1)
+  assert_equal('Overlapping Review',
+    get(week_view.GetEventAtCursor(), 'subject', ''),
+    'An event must stay resolvable across the hour separator it spans')
+
+  # Lane 1 is empty at 09:00 — Overlapping Review has not started yet.
+  CursorAtVcol(28, lane1)
   assert_equal({}, week_view.GetEventAtCursor(),
-    'Hour-0 slot row (no events) should return {}')
+    'A lane with no event yet should return {}')
+
+  # Separator lines and empty rows must return {}.
+  CursorAtVcol(1, lane0)
+  assert_equal({}, week_view.GetEventAtCursor(),
+    'Hour-0 row (no events) should return {}')
+  CursorAtVcol(30, lane0)
+  assert_equal({}, week_view.GetEventAtCursor(),
+    'An hour separator line should return {}')
 
   # Time column (col < WEEK_TIME_COL + 2) must return {}.
-  cursor(28, 3)
+  CursorAtVcol(28, 3)
   assert_equal({}, week_view.GetEventAtCursor(),
     'Cursor on time column should return {}')
+enddef
+
+def g:Test_week_view_event_spans_one_line_per_half_hour()
+  ResetConfig()
+  g:calendar_config.diaries_dict.TestDiary.fetch_events = 'g:SpanFetchEvents'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  week_view.NavigateWeekView(2026, 7, 27)
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  # 'Ninety' runs 09:00–10:30 = 3 half hours, so it occupies lines 28, 29 and
+  # 31 (line 30 is the hour separator, which does not count towards the span).
+  var vcol = GRID_TIME_COL + 4
+  for lnum in [28, 29, 31]
+    CursorAtVcol(lnum, vcol)
+    assert_equal('Ninety', get(week_view.GetEventAtCursor(), 'subject', ''),
+      $'Line {lnum} should belong to the 1.5-hour event')
+  endfor
+
+  # It must not bleed into the 10:30 row.
+  CursorAtVcol(32, vcol)
+  assert_equal({}, week_view.GetEventAtCursor(),
+    'The event must stop after its third half-hour row')
+
+  # A 30-minute event occupies exactly one line and shows the title only.
+  CursorAtVcol(37, GRID_TIME_COL + 4 + GRID_DAY_COL + 1)
+  assert_equal('Short', get(week_view.GetEventAtCursor(), 'subject', ''),
+    'The 12:00 half-hour event should occupy line 37')
+  CursorAtVcol(38, GRID_TIME_COL + 4 + GRID_DAY_COL + 1)
+  assert_equal({}, week_view.GetEventAtCursor(),
+    'A 30-minute event must not occupy the following half-hour row')
+
+  CalendarWipe
 enddef
 
 def g:Test_get_creation_slot_at_cursor()
@@ -259,17 +362,22 @@ def g:Test_get_creation_slot_at_cursor()
   week_view.NavigateWeekView(2026, 7, 27)
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
-  # Empty hour 8 uses lines 25-26; Monday is the first day cell.
-  cursor(25, 15)
-  assert_equal({date: '2026-07-27', hour: 8},
+  # Empty hour 8 uses lines 25 (08:00) and 26 (08:30).
+  CursorAtVcol(25, GRID_TIME_COL + 4)
+  assert_equal({date: '2026-07-27', hour: 8, minute: 0},
     week_view.GetSlotAtCursor())
+
+  CursorAtVcol(26, GRID_TIME_COL + 4)
+  assert_equal({date: '2026-07-27', hour: 8, minute: 30},
+    week_view.GetSlotAtCursor(),
+    'The second row of an hour is the half-past slot')
 
   # Tuesday is the second day cell.
-  cursor(25, 31)
-  assert_equal({date: '2026-07-28', hour: 8},
+  CursorAtVcol(25, GRID_TIME_COL + 4 + GRID_DAY_COL + 1)
+  assert_equal({date: '2026-07-28', hour: 8, minute: 0},
     week_view.GetSlotAtCursor())
 
-  cursor(25, 3)
+  CursorAtVcol(25, 3)
   assert_equal({}, week_view.GetSlotAtCursor(),
     'The time-label column is not an appointment slot')
 enddef
@@ -287,7 +395,7 @@ def g:Test_manage_events_hook_requests()
   week_view.NavigateWeekView(2026, 7, 27)
   win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
 
-  cursor(25, 15)
+  CursorAtVcol(25, GRID_TIME_COL + 4)
   execute 'normal m'
   assert_equal({
     action: 'create',
@@ -295,9 +403,18 @@ def g:Test_manage_events_hook_requests()
     end: '2026-07-27 09:00',
   }, g:manage_events_request)
 
+  # The half-past row creates a half-past event.
+  CursorAtVcol(26, GRID_TIME_COL + 4)
+  execute 'normal m'
+  assert_equal({
+    action: 'create',
+    start: '2026-07-27 08:30',
+    end: '2026-07-27 09:30',
+  }, g:manage_events_request)
+
   t:cal_week_key = '2026-07-27'
   week_view.FetchEvents(2026, 7, 27)
-  cursor(28, 15)
+  CursorAtVcol(28, GRID_TIME_COL + 4)
   execute 'normal m'
   assert_equal({action: 'edit', id: 'ENTRY-1'}, g:manage_events_request)
 

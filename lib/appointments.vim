@@ -77,6 +77,8 @@ export def LoadFile(path: string): dict<any>
         organizer: StripCR(get(item, 'organizer', '')),
         location: StripCR(get(item, 'location', '')),
         body: StripCR(get(item, 'body', '')),
+        required_attendees: StripCR(get(item, 'required_attendees', '')),
+        optional_attendees: StripCR(get(item, 'optional_attendees', '')),
         id: get(item, 'id', ''),
         provider_start: get(item, 'start', ''),
         allday: true,
@@ -94,10 +96,13 @@ export def LoadFile(path: string): dict<any>
     events[date_key]->add({
       start: strpart(get(item, 'start', ''), 11, 5),
       end: strpart(get(item, 'end', ''), 11, 5),
+      end_date: strpart(get(item, 'end', ''), 0, 10),
       subject: StripCR(get(item, 'subject', '')),
       organizer: StripCR(get(item, 'organizer', '')),
       location: StripCR(get(item, 'location', '')),
       body: StripCR(get(item, 'body', '')),
+      required_attendees: StripCR(get(item, 'required_attendees', '')),
+      optional_attendees: StripCR(get(item, 'optional_attendees', '')),
       id: get(item, 'id', ''),
       provider_start: get(item, 'start', ''),
     })

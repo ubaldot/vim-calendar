@@ -4,6 +4,8 @@
     "end":   "2026-07-27T10:00:00",
     "subject":   "Team Meeting",
     "organizer": "Alice",
+    "required_attendees": "Bob <bob@example.com>",
+    "optional_attendees": "Carol <carol@example.com>",
     "location":  "Room A",
     "body":      "Weekly sync",
     "id":        "ENTRY-1"
