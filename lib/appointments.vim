@@ -22,12 +22,6 @@ export def Put(week_key: string, events: dict<list<any>>)
   cache[week_key] = events
 enddef
 
-export def Remove(week_key: string)
-  if has_key(cache, week_key)
-    remove(cache, week_key)
-  endif
-enddef
-
 export def EventsOn(date_key: string): list<any>
   for events in values(cache)
     if has_key(events, date_key)

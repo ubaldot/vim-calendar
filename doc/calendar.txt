@@ -51,9 +51,11 @@ vim-calendar makes the following commands available:
                     - two arguments: specific year and month
 
                                                 *calendar-:CalendarRefresh*
-:CalendarRefresh    Re-fetch appointments for the currently visible week by
-                    calling the active diary's fetch_events hook. Useful after
-                    external data changes (e.g. a new meeting invite arrived).
+:CalendarRefresh    Discard the cached events and re-fetch the currently
+                    visible week by calling the active diary's fetch_events
+                    hook.  Every other week is fetched again the next time it
+                    is displayed.  This is the only way to pick up external
+                    data changes (e.g. a new meeting invite arrived).
 
                                             *calendar-:CalendarSearch*
 :CalendarSearch [keyword [year]]
@@ -250,8 +252,12 @@ takes one line, a one-hour event two lines and a 1.5-hour event three lines.
 When events overlap, the day column is split into lanes so that conflicting
 events sit side by side and remain aligned with the time column.  Lanes are
 separated by the character `┆`, which is deliberately different from the `│`
-used for the day borders.  The number of lanes is constant for the whole day,
-so an event always keeps the same width from its first line to its last.
+used for the day borders.
+
+Only the lines a conflict actually covers are split.  Lanes belong to the
+group of events that overlap, so an event keeps the same width from its first
+line to its last, while an event elsewhere in the same day that conflicts
+with nothing gets the full width of the column.
 
 Inside a cell the subject is wrapped over the available lines and the
 organizer is shown in brackets on the last line of the event.  Text that does
@@ -262,7 +268,11 @@ truncated subject only.
     9     │ event  ┆       │ foo bar foo ...│
           │ foo... ┆ eve...│ (john doyle)   │
     ──────┼────────────────┼────────────────┼
-    10    │ (jac...┆ (jo...│                │
+    10    │ (jac...┆       │                │
+          │                │                │
+    ──────┼────────────────┼────────────────┼
+    11    │ Another meet...│                │
+          │ (Sarah Connor) │                │
 
 Widen |calendar-config| `week_cell_width` if titles are truncated too
 aggressively on days with many conflicting events.
@@ -371,8 +381,8 @@ installed. Such a plugin provide the following hook functions:
                                             *calendar-fetch_events-hook*
 The fetch_events hook ~
 
-The `fetch_events` value is the name of a *global* Vim function (string).
-vim-calendar calls it whenever a displayed date range needs data: >
+The `fetch_events` value is the name of a global Vim function (string).
+vim-calendar calls it when a displayed date range has no cached data yet: >
 
     def g:MyCalendarFetchEvents(request: dict<any>): string
       # request.start is inclusive and request.end is exclusive.
@@ -384,6 +394,12 @@ vim-calendar calls it whenever a displayed date range needs data: >
       return tmp
     enddef
 <
+The hook is deliberately called as rarely as possible, since a provider may
+be slow: once for each week the first time that week is displayed, and again
+for the visible week on |:CalendarRefresh|.  Opening, closing and toggling
+the calendar, or navigating back to a week already displayed, are served
+from the cache and never reach the provider.  Switching to another diary
+drops the cache, since its events come from a different provider.
 The request uses explicit boundaries, for example: >
 
     {start: '2026-07-27', end: '2026-08-03'}

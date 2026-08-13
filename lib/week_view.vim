@@ -41,11 +41,17 @@ var allday_line_map: dict<dict<any>> = {}
 var slot_line_time: dict<dict<number>> = {}
 var displayed_dates: list<string> = []
 
-# Set the active diary's provider functions and clear the week cache.
-# Must be called whenever the active diary changes.
+# Set the active diary's provider function names.  Installing a provider does
+# not touch the week cache: frontend.ConfigureProvider decides when the cache
+# is stale, because it alone knows whether the active diary really changed.
 export def SetProviderFuncs(fetch_name: string, manage_name: string)
   t:cal_fetch_events_func = fetch_name
   manage_events_func = manage_name
+enddef
+
+# Drop every cached week.  Called when the active diary changes and by
+# :CalendarRefresh.
+export def ClearCache()
   appointments.Clear()
   appt_line_map = {}
 enddef
@@ -206,12 +212,7 @@ enddef
 # free at its start row, so non-overlapping events share a lane.
 # Returns a list of {event, row, span, lane}.
 def AssignLanes(evs: list<dict<any>>): list<dict<any>>
-  var ordered = copy(evs)
-  sort(ordered, (a, b) => {
-    var ra = EventRows(a)
-    var rb = EventRows(b)
-    return ra[0] != rb[0] ? ra[0] - rb[0] : rb[1] - ra[1]
-  })
+  var ordered = SortedByRows(evs)
   var placed: list<dict<any>> = []
   var lane_free: list<number> = []
   for ev in ordered
@@ -231,6 +232,38 @@ def AssignLanes(evs: list<dict<any>>): list<dict<any>>
     placed->add({event: ev, row: rows[0], span: rows[1], lane: lane})
   endfor
   return placed
+enddef
+
+# Order events by start row, longest first — the order lane assignment and
+# cluster detection both need.
+def SortedByRows(evs: list<dict<any>>): list<dict<any>>
+  var ordered = copy(evs)
+  sort(ordered, (a, b) => {
+    var ra = EventRows(a)
+    var rb = EventRows(b)
+    return ra[0] != rb[0] ? ra[0] - rb[0] : rb[1] - ra[1]
+  })
+  return ordered
+enddef
+
+# Group a day's events into conflict clusters: maximal runs of events whose
+# row ranges overlap, directly or through a common neighbour.  Lanes are a
+# property of the cluster and not of the day, so an event that conflicts with
+# nothing keeps the full width of its column.
+# Returns a list of {start, end, events} with end exclusive.
+def ConflictClusters(evs: list<dict<any>>): list<dict<any>>
+  var clusters: list<dict<any>> = []
+  for ev in SortedByRows(evs)
+    var rows = EventRows(ev)
+    var ev_end = rows[0] + rows[1]
+    if !empty(clusters) && rows[0] < clusters[-1].end
+      clusters[-1].events->add(ev)
+      clusters[-1].end = max([clusters[-1].end, ev_end])
+    else
+      clusters->add({start: rows[0], end: ev_end, events: [ev]})
+    endif
+  endfor
+  return clusters
 enddef
 
 # Split a day cell of `total` cells into `n` lane widths, allowing for the
@@ -303,13 +336,10 @@ def EventCellLines(ev: dict<any>, span: number, width: number): list<string>
   return cells
 enddef
 
-# Join one row of lane texts into a full day cell of exactly week_day_col cells.
-# Rows with no event in any lane render as one plain cell, so a conflict early
-# in the day does not draw a lane rule down the whole column.
-def DayCellStr(texts: list<string>, widths: list<number>, split: bool): string
-  if !split
-    return repeat(' ', week_day_col)
-  endif
+# Join one row of lane texts into a full day cell of exactly week_day_col
+# cells.  Rows outside a conflict cluster arrive as a single full-width lane,
+# so no lane rule is drawn where there is nothing to separate.
+def DayCellStr(texts: list<string>, widths: list<number>): string
   var parts: list<string> = []
   for i in range(len(texts))
     parts->add(FitCell(texts[i], widths[i]))
@@ -480,6 +510,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   setbufvar(hdr_buf, '&modifiable', 1)
   deletebufline(hdr_buf, 1, '$')
   setbufline(hdr_buf, 1, hdr_lines)
+  setbufvar(hdr_buf, '&modified', 0)
   setbufvar(hdr_buf, '&modifiable', 0)
 
   # Resize header and apply today-column highlight.
@@ -497,48 +528,62 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   displayed_dates = display_wdays->mapnew((_, d) =>
     printf('%04d-%02d-%02d', d.year, d.month, d.day))
 
-  # Lay every day out first: lanes are a per-day property, so the column keeps
-  # the same lane geometry for the whole day and events stay aligned.
-  var lane_widths: list<list<number>> = []
+  # Lay every day out first.  Lanes belong to a conflict cluster, so rows
+  # inside a cluster share its geometry and stay aligned, while everything
+  # else keeps the full width of the column.
+  var cell_widths: list<list<list<number>>> = []
   var cell_text:  list<list<list<string>>> = []
   var cell_event: list<list<list<dict<any>>>> = []
   for date_key in displayed_dates
-    var placed = AssignLanes(get(events, date_key, []))
-    var n_lanes = 1
-    for p in placed
-      if p.lane + 1 > n_lanes
-        n_lanes = p.lane + 1
-      endif
-    endfor
-    var widths = LaneWidths(week_day_col, n_lanes)
-
+    var rows_width: list<list<number>> = []
     var rows_text:  list<list<string>> = []
     var rows_event: list<list<dict<any>>> = []
     for _ in range(TOTAL_ROWS)
-      var blank_text: list<string> = []
-      var blank_event: list<dict<any>> = []
-      for _l in range(n_lanes)
-        blank_text->add('')
-        blank_event->add({})
-      endfor
-      rows_text->add(blank_text)
-      rows_event->add(blank_event)
+      rows_width->add([week_day_col])
+      rows_text->add([''])
+      rows_event->add([{}])
     endfor
 
-    for p in placed
-      var lines = EventCellLines(p.event, p.span, widths[p.lane])
-      for k in range(len(lines))
-        var r = p.row + k
-        if r < TOTAL_ROWS
-          rows_text[r][p.lane] = lines[k]
-          # Every row of the block resolves to the event, including rows whose
-          # text is blank, so the cursor finds it anywhere inside the block.
-          rows_event[r][p.lane] = p.event
+    for cluster in ConflictClusters(get(events, date_key, []))
+      var placed = AssignLanes(cluster.events)
+      var n_lanes = 1
+      for p in placed
+        if p.lane + 1 > n_lanes
+          n_lanes = p.lane + 1
         endif
       endfor
+      var widths = LaneWidths(week_day_col, n_lanes)
+
+      # Give every row the cluster spans the same lanes, so an event keeps its
+      # width from its first line to its last even where the conflict has ended.
+      var last_row = min([cluster.end, TOTAL_ROWS]) - 1
+      for r in range(cluster.start, last_row)
+        var blank_text: list<string> = []
+        var blank_event: list<dict<any>> = []
+        for _l in range(n_lanes)
+          blank_text->add('')
+          blank_event->add({})
+        endfor
+        rows_width[r] = widths
+        rows_text[r] = blank_text
+        rows_event[r] = blank_event
+      endfor
+
+      for p in placed
+        var lines = EventCellLines(p.event, p.span, widths[p.lane])
+        for k in range(len(lines))
+          var r = p.row + k
+          if r < TOTAL_ROWS
+            rows_text[r][p.lane] = lines[k]
+            # Every row of the block resolves to the event, including rows whose
+            # text is blank, so the cursor finds it anywhere inside the block.
+            rows_event[r][p.lane] = p.event
+          endif
+        endfor
+      endfor
     endfor
 
-    lane_widths->add(widths)
+    cell_widths->add(rows_width)
     cell_text->add(rows_text)
     cell_event->add(rows_event)
   endfor
@@ -552,14 +597,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
       var r = h * ROWS_PER_HOUR + half
       var day_cells: list<string> = []
       for di in range(n_days)
-        var occupied = false
-        for ev in cell_event[di][r]
-          if !empty(ev)
-            occupied = true
-            break
-          endif
-        endfor
-        day_cells->add(DayCellStr(cell_text[di][r], lane_widths[di], occupied))
+        day_cells->add(DayCellStr(cell_text[di][r], cell_widths[di][r]))
       endfor
       var lnum = len(body_lines) + 1
       body_lines->add(WeekDataRow(half == 0 ? printf('%3d', h) : '', day_cells))
@@ -569,15 +607,15 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
       var spans: list<dict<any>> = []
       for di in range(n_days)
         var lane_start = WEEK_TIME_COL + 2 + di * (week_day_col + 1)
-        for l in range(len(lane_widths[di]))
+        for l in range(len(cell_widths[di][r]))
           if !empty(cell_event[di][r][l])
             spans->add({
               first: lane_start,
-              last: lane_start + lane_widths[di][l] - 1,
+              last: lane_start + cell_widths[di][r][l] - 1,
               event: cell_event[di][r][l],
             })
           endif
-          lane_start += lane_widths[di][l] + 1
+          lane_start += cell_widths[di][r][l] + 1
         endfor
       endfor
       if !empty(spans)
@@ -590,6 +628,7 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
   setbufvar(body_buf, '&modifiable', 1)
   deletebufline(body_buf, 1, '$')
   setbufline(body_buf, 1, body_lines)
+  setbufvar(body_buf, '&modified', 0)
   setbufvar(body_buf, '&modifiable', 0)
 
   # Set the week title in the body window statusline and scroll to hour 7.
@@ -601,25 +640,25 @@ export def RenderWeekView(year: number, month: number, day: number, events: dict
 enddef
 
 # Navigate the week view to the week containing (year, month, day).
-# Uses the cache if available; otherwise fetches events and renders
-# an empty grid (the hook will fill it in synchronously via LoadAppointments).
+# FetchEvents renders from the cache when the week is already known, so
+# changing week only reaches the provider the first time it is displayed.
 export def NavigateWeekView(year: number, month: number, day: number)
   var cache_key = WeekCacheKey(year, month, day)
-  if appointments.Has(cache_key)
-    RenderWeekView(year, month, day, appointments.Get(cache_key))
-  else
-    # Set t:cal_week_key before the hook fires so LoadAppointments caches correctly.
-    t:cal_week_key = cache_key
-    FetchEvents(year, month, day)
-    if !appointments.Has(cache_key)
-      RenderWeekView(year, month, day, {})
-    endif
+  # Set t:cal_week_key before the hook fires so LoadAppointments caches correctly.
+  t:cal_week_key = cache_key
+  FetchEvents(year, month, day)
+  if !appointments.Has(cache_key)
+    RenderWeekView(year, month, day, {})
   endif
 enddef
 
 # Call the active diary's fetch_events hook for the displayed date range.
 # The hook must return the path it wrote to on success, '' on failure.
-export def FetchEvents(year: number = -1, month: number = -1, day: number = -1)
+# Cached weeks are re-rendered without calling the provider: opening or
+# toggling the calendar must not pay for a fetch.  Pass force = true (only
+# :CalendarRefresh does) to bypass the cache and pull fresh data.
+export def FetchEvents(year: number = -1, month: number = -1,
+    day: number = -1, force: bool = false)
   if empty(get(t:, 'cal_fetch_events_func', ''))
       || !exists($'*{t:cal_fetch_events_func}')
     return
@@ -637,6 +676,10 @@ export def FetchEvents(year: number = -1, month: number = -1, day: number = -1)
     ? day
     : use_stored ? str2nr(stored_key[8 : 9]) : str2nr(strftime('%d'))
   t:cal_week_key = WeekCacheKey(fy, fm, fd)
+  if !force && appointments.Has(t:cal_week_key)
+    RenderWeekView(fy, fm, fd, appointments.Get(t:cal_week_key))
+    return
+  endif
   var path = function(t:cal_fetch_events_func)(FetchRange(fy, fm, fd))
   if !empty(path)
     LoadAppointments(path)
@@ -664,7 +707,8 @@ def LoadAppointments(path: string)
 enddef
 
 # Re-fetch appointments for the currently displayed week.
-# Invalidates the cache entry so fresh data is pulled from the provider.
+# Drops the whole cache so every week is pulled fresh from the provider the
+# next time it is displayed; the visible week is refetched immediately.
 export def CalendarRefresh()
   if empty(get(t:, 'cal_fetch_events_func', ''))
     return
@@ -673,11 +717,11 @@ export def CalendarRefresh()
   var key = empty(stored_key)
     ? WeekCacheKey(str2nr(strftime('%Y')), str2nr(strftime('%m')), str2nr(strftime('%d')))
     : stored_key
-  appointments.Remove(key)
+  appointments.Clear()
   var ky = str2nr(key[0 : 3])
   var km = str2nr(key[5 : 6])
   var kd = str2nr(key[8 : 9])
-  FetchEvents(ky, km, kd)
+  FetchEvents(ky, km, kd, true)
   RescheduleReminders()
 enddef
 
@@ -982,7 +1026,7 @@ def OpenAppointmentBody()
   endif
   setlocal modifiable
   setline(1, lines)
-  setlocal nomodifiable
+  setlocal nomodified nomodifiable
 
   nnoremap <silent> <buffer> q     <Cmd>bwipeout!<CR>
   nnoremap <silent> <buffer> <Esc> <Cmd>bwipeout!<CR>

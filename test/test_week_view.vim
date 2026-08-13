@@ -14,6 +14,7 @@ import autoload "../lib/reminder.vim"
 # returns its path (which LoadAppointments will consume and delete).
 def g:TestFetchEvents(request: dict<any>): string
   g:last_fetch_events_request = request
+  g:fetch_events_count = get(g:, 'fetch_events_count', 0) + 1
   var src = 'fixtures/appointments.json'
   if !filereadable(src)
     return ''
@@ -84,6 +85,20 @@ def g:SpanFetchEvents(_request: dict<any>): string
      subject: 'Ninety', organizer: 'Alice', id: 'SPAN-90'},
     {start: '2026-07-28T12:00:00', end: '2026-07-28T12:30:00',
      subject: 'Short', organizer: 'Bob', id: 'SPAN-30'},
+  ])], tmp)
+  return tmp
+enddef
+
+# Monday: two conflicting events at 09:00, plus a conflict-free one at 11:00.
+def g:ClusterFetchEvents(_request: dict<any>): string
+  var tmp = tempname() .. '.json'
+  writefile([json_encode([
+    {start: '2026-07-27T09:00:00', end: '2026-07-27T10:30:00',
+     subject: 'event foo potato', organizer: 'jack kunningam', id: 'CL-A'},
+    {start: '2026-07-27T09:30:00', end: '2026-07-27T10:00:00',
+     subject: 'eve second', organizer: 'john doyle', id: 'CL-B'},
+    {start: '2026-07-27T11:00:00', end: '2026-07-27T12:00:00',
+     subject: 'Another meeting', organizer: 'Sarah Connor', id: 'CL-C'},
   ])], tmp)
   return tmp
 enddef
@@ -213,6 +228,115 @@ def g:Test_week_view_details_show_attendees()
     'Detail buffer must list the optional attendees')
 
   execute $'bwipeout! {bufnr(week_view.APPT_BUF_NAME)}'
+enddef
+
+# Opening or toggling the calendar must serve the cached week instead of
+# calling the provider again; only :CalendarRefresh pulls fresh data.
+def g:Test_toggle_reuses_cached_events()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  var after_open = g:fetch_events_count
+  assert_true(after_open > 0, 'Opening the calendar must fetch once')
+
+  # Close and re-open: the same diary and week, so no provider call.
+  CalendarToggle
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  assert_equal(after_open, g:fetch_events_count,
+    'Toggling the calendar must not re-fetch a cached week')
+
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+  week_view.CalendarRefresh()
+  assert_equal(after_open + 1, g:fetch_events_count,
+    ':CalendarRefresh must bypass the cache')
+enddef
+
+# Changing week fetches once; coming back to a visited week uses the cache.
+def g:Test_week_change_fetches_once_per_week()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  week_view.NavigateWeekView(2026, 7, 27)
+  var after_first = g:fetch_events_count
+
+  week_view.NavigateWeekView(2026, 8, 3)
+  assert_equal(after_first + 1, g:fetch_events_count,
+    'A week never displayed before must be fetched')
+
+  week_view.NavigateWeekView(2026, 7, 27)
+  assert_equal(after_first + 1, g:fetch_events_count,
+    'Returning to a visited week must use the cache')
+enddef
+
+# :tabnew leaves an empty buffer behind; it must not accumulate per toggle.
+def g:Test_toggle_does_not_leak_scratch_buffers()
+  ResetConfig()
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  CalendarToggle
+
+  var before = getbufinfo({buflisted: 1})
+    ->filter((_, b) => empty(b.name))
+    ->len()
+
+  for _ in range(3)
+    CalendarToggle
+    WaitForAssert(() => assert_equal(3, winnr('$')))
+    CalendarToggle
+  endfor
+
+  var after = getbufinfo({buflisted: 1})
+    ->filter((_, b) => empty(b.name))
+    ->len()
+  assert_equal(before, after,
+    'Toggling the calendar must not leave empty buffers behind')
+enddef
+
+# Lanes belong to a conflict cluster, not to the whole day: only the rows the
+# conflict actually covers are split, and a conflict-free event further down
+# the same day keeps the full width of its column.
+def g:Test_lane_split_is_limited_to_the_conflict()
+  ResetConfig()
+  g:calendar_config.diaries_dict = {
+    Cluster: {path: tempname(), fetch_events: 'g:ClusterFetchEvents'},
+  }
+  g:calendar_config.active_diary = 'Cluster'
+  CalendarToggle
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  win_gotoid(win_findbuf(bufnr(week_view.WEEK_BUF_NAME))[0])
+
+  t:cal_week_key = '2026-07-27'
+  week_view.FetchEvents(2026, 7, 27)
+  var lines = BufLines(week_view.WEEK_BUF_NAME)
+
+  # 09:00 and 09:30 conflict, and 10:00 still belongs to the 09:00–10:30 block.
+  for lnum in [28, 29, 31]
+    assert_true(lines[lnum - 1] =~# '┆',
+      $'Line {lnum} covers the conflict and must be split into lanes')
+  endfor
+
+  # 10:30 is past the conflict, and 11:00 carries a conflict-free event.
+  for lnum in [32, 34, 35]
+    assert_false(lines[lnum - 1] =~# '┆',
+      $'Line {lnum} has no conflict and must not be split into lanes')
+  endfor
+
+  # With the whole column to itself the 11:00 event is not truncated.
+  assert_true(HasLine(lines, 'Another meeting'),
+    'A conflict-free event must use the full width of its column')
+  assert_true(HasLine(lines, '(Sarah Connor)'),
+    'A conflict-free event must show its organizer in full')
+
+  # The cursor still resolves both conflicting events and the solo one.
+  CursorAtVcol(29, GRID_TIME_COL + 4)
+  assert_equal('CL-A', get(week_view.GetEventAtCursor(), 'id', ''))
+  CursorAtVcol(29, GRID_TIME_COL + 13)
+  assert_equal('CL-B', get(week_view.GetEventAtCursor(), 'id', ''))
+  CursorAtVcol(34, GRID_TIME_COL + 13)
+  assert_equal('CL-C', get(week_view.GetEventAtCursor(), 'id', ''))
 enddef
 
 def g:Test_week_view_allday_events_in_header()
@@ -815,19 +939,14 @@ def g:Test_reschedule_reminders_schedules_todays_meetings()
   writefile([appt_json], tmp)
   t:cal_fetch_events_func = 'g:TestFetchEvents'
   t:cal_week_key = printf('%04d-%02d-%02d', mon.year, mon.month, mon.day)
-  # Use LoadAppointments indirectly via the fetch hook by overwriting the fixture.
-  # Simpler: call RescheduleReminders after manually populating the cache via
-  # the public LoadAppointments path (FetchEvents reads the fixture file).
-  # Direct injection: write our JSON to the temp path and call the hook.
-  week_view.SetProviderFuncs('g:TestFetchEvents', '')
 
-  # Produce a temp file with our single-meeting JSON and read it as the hook output.
-  writefile([appt_json], tmp)
+  # Feed the single-meeting JSON through a hook of our own, forcing the fetch
+  # so a week cached by an earlier test cannot serve the request.
   def g:TmpFetchEvents(_request: dict<any>): string
     return tmp
   enddef
   week_view.SetProviderFuncs('g:TmpFetchEvents', '')
-  week_view.FetchEvents(ty, tm, td)
+  week_view.FetchEvents(ty, tm, td, true)
   week_view.RescheduleReminders()
 
   assert_true(reminder.PendingCount() >= 1,
@@ -849,7 +968,7 @@ def g:Test_reschedule_reminders_cancels_stale_timers()
   }])
   assert_equal(2, reminder.PendingCount())
 
-  week_view.SetProviderFuncs('g:TestFetchEvents', '')
+  week_view.ClearCache()
   week_view.RescheduleReminders()
   assert_equal(0, reminder.PendingCount(),
     'Refreshing to an empty cache must cancel obsolete reminders')

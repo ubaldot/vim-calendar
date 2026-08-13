@@ -26,10 +26,21 @@ var state_base_year = 0
 var state_base_month = 0
 var state_blocks: list<dict<any>> = []
 var state_diary_rows: dict<string> = {}
+var state_provider_key = ''
 
 def ConfigureProvider(name: string, diary_config: dict<any>)
   var fetch_func = get(diary_config, 'fetch_events', '')
   var manage_func = get(diary_config, 'manage_events', '')
+  # Cached weeks belong to one diary and one provider pair.  Re-installing the
+  # same provider (every calendar toggle does) keeps them; anything else drops
+  # them so the new diary is fetched fresh.
+  var provider_key = $'{name}|{fetch_func}|{manage_func}|'
+    .. $'{get(diary_config, "path", "")}|'
+    .. get(diary_config, 'events_file', '')
+  if provider_key !=# state_provider_key
+    state_provider_key = provider_key
+    week_view.ClearCache()
+  endif
   if empty(fetch_func) && empty(manage_func)
     local_provider.Configure(name, get(diary_config, 'events_file', ''),
       get(diary_config, 'address_book', ''))
@@ -189,7 +200,7 @@ def RenderView(base_year: number, base_month: number)
   deletebufline('%', 1, '$')
   append(0, view.lines)
   deletebufline('%', len(view.lines) + 1)
-  setlocal nomodifiable
+  setlocal nomodified nomodifiable
 
   var width = max(view.lines->mapnew((_, s) => len(s))) + 2
   execute $"vertical resize {min([max([20, width]), &columns - 5])}"
@@ -589,6 +600,21 @@ export def CalendarWipe()
     endif
   endfor
 enddef
+# Wipe the empty buffer :tabnew left behind.  When the calendar buffers
+# already exist they are reused with :sbuffer, so nothing adopts the scratch
+# buffer and it would otherwise pile up once per toggle.
+def WipeLeftoverScratch(bnr: number)
+  if bnr <= 0 || !bufexists(bnr)
+    return
+  endif
+  if !empty(bufname(bnr)) || getbufvar(bnr, '&modified')
+    return
+  endif
+  if !empty(win_findbuf(bnr))
+    return
+  endif
+  execute $'silent! bwipeout! {bnr}'
+enddef
 
 # Main entrypoint: opens a tab with calendar and week-view panes side by side.
 export def Show(year: number = -1, month: number = -1): string
@@ -618,6 +644,8 @@ export def Show(year: number = -1, month: number = -1): string
       : 1
     week_view.RenderWeekView(y, m, selected_day, {})
   endif
+
+  WipeLeftoverScratch(tabnew_bufnr)
 
   var week_windows = win_findbuf(bufnr(week_view.WEEK_BUF_NAME))
   win_gotoid(empty(week_windows) ? cal_winid : week_windows[0])

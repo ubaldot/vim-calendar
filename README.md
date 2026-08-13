@@ -11,8 +11,9 @@ A Vim 9.0 ported, refactored and enhanced version of
 - Events preview with `K` key,
 - ISO (EU), US, and work-week (Mon–Fri) layouts
 - Week view panel with calendar events integration
+- Events are fetched once per week and cached until `:CalendarRefresh`
 - Half-hour grid: events span one line per half hour and conflicting
-  events are laid out side by side
+  events are laid out side by side, splitting only the lines they overlap
 - Multiple configurable diary books
 - Address-book completion for event attendees
 - Configurable holidays
@@ -35,7 +36,7 @@ Note that different windows shows different helps.
 | Command | Description |
 |---|---|
 | `:CalendarToggle [year [month]]` | Toggle calendar tab (open / focus / close) |
-| `:CalendarRefresh` | Re-fetch appointments for the visible week |
+| `:CalendarRefresh` | Discard cached events and re-fetch the visible week |
 | `:CalendarSearch {keyword} [{year}]` | Search diary markdown files |
 | `:CalendarWipe` | Close tab and wipe all calendar buffers |
 
