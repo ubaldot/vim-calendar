@@ -96,22 +96,21 @@ def g:Test_calendar_reuses_stale_hidden_buffer()
 enddef
 
 def g:Test_calendar_arguments()
-  messages clear
   ResetConfig()
   var current_month_name = strftime('%B')
 
   CalendarToggle 2031
   WaitForAssert(() => assert_equal(3, winnr('$')))
   FocusCalendar()
-  echom assert_match($'{current_month_name}\s\+2031', join(getline(1, '$'), "\n"))
-  # execute "normal q"
+  assert_match($'{current_month_name}\s\+2031', join(getline(1, '$'), "\n"))
+  execute "normal q"
 
-  # CalendarToggle 2032, 5
-  # WaitForAssert(() => assert_equal(3, winnr('$')))
-  # FocusCalendar()
-  # echom assert_match('May\s\+2032', join(getline(1, '$'), "\n"))
-  # execute "normal q"
-  # echom assert_equal(1, winnr('$'))
+  CalendarToggle 2032, 5
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
+  assert_match('May\s\+2032', join(getline(1, '$'), "\n"))
+  execute "normal q"
+  assert_equal(1, winnr('$'))
 enddef
 
 def g:Test_calendar_position_right()
