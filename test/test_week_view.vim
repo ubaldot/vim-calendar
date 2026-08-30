@@ -6,6 +6,7 @@ var WaitForAssert = common.WaitForAssert
 packadd CalendarToggle
 import autoload "../lib/week_view.vim"
 import autoload "../lib/backend.vim"
+import autoload "../lib/frontend.vim"
 import autoload "../lib/reminder.vim"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -846,13 +847,13 @@ def g:Test_week_view_next_prev_week_navigation()
   assert_equal('2026-07-27', t:cal_week_key)
 
   # Next week: 2026-08-03.
-  CalendarWeekNav next
+  frontend.WeekViewNavigate('next')
   assert_equal('2026-08-03', t:cal_week_key,
     '<C-Right> must advance to the next Monday')
 
   # Previous week twice: back to 2026-07-27.
-  CalendarWeekNav prev
-  CalendarWeekNav prev
+  frontend.WeekViewNavigate('prev')
+  frontend.WeekViewNavigate('prev')
   assert_equal('2026-07-20', t:cal_week_key,
     'Two prev navigations from 2026-08-03 must reach 2026-07-20')
 enddef
@@ -867,7 +868,7 @@ def g:Test_week_view_today_navigation()
   week_view.NavigateWeekView(2020, 1, 6)
   assert_equal('2020-01-06', t:cal_week_key)
 
-  CalendarWeekNav today
+  frontend.WeekViewNavigate('today')
   var ty = str2nr(strftime('%Y'))
   var tm = str2nr(strftime('%m'))
   var td = str2nr(strftime('%d'))
@@ -887,8 +888,7 @@ def g:Test_week_view_navigation_syncs_left_pane()
 
   # Navigate to a week far from today so the left pane must update.
   week_view.NavigateWeekView(2026, 7, 27)
-
-  CalendarWeekNav next   # → 2026-08-03
+  frontend.WeekViewNavigate('next') # → 2026-08-03
 
   # Left pane must now show August 2026.
   var cal_lines = BufLines('__Calendar__')

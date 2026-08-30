@@ -3,6 +3,7 @@ vim9script
 import autoload "./appointments.vim"
 import autoload "./help_popup.vim"
 import autoload "./backend.vim"
+import autoload "./frontend.vim"
 import autoload "./highlights.vim"
 import autoload "./reminder.vim"
 
