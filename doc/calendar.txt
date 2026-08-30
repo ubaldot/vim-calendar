@@ -199,6 +199,7 @@ Top-level keys ~
                                       manage_events: string,  # optional
                                       events_file:   string,  # optional
                                       address_book: string,   # optional
+                                      secret:       bool,     # optional
                                     }
 <
                                 path        Root directory for diary files.
@@ -230,6 +231,9 @@ Top-level keys ~
                                             used to complete attendee fields
                                             in the local event form.
                                             See |calendar-address-book|.
+
+                                secret      If |true|, it sets 'key' when
+                                            using internal search feature.
 
               active_diary      Key from diaries_dict to use on startup.
                                 Default: first key in diaries_dict
