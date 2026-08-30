@@ -1040,11 +1040,11 @@ def WeekViewBuildKeymap()
   nnoremap <silent> <buffer> d         <ScriptCmd>EventAction('delete')<CR>
   nnoremap <silent> <buffer> a         <ScriptCmd>EventAction('accept')<CR>
   nnoremap <silent> <buffer> v         <ScriptCmd>EventAction('tentative')<CR>
-  nnoremap <silent> <buffer> <C-Right> <Cmd>CalendarWeekNav next<CR>
-  nnoremap <silent> <buffer> <C-Left>  <Cmd>CalendarWeekNav prev<CR>
-  nnoremap <silent> <buffer> t         <Cmd>CalendarWeekNav today<CR>
-  nnoremap <silent> <buffer> <Tab>     <Cmd>CalendarDiaryCycle next<CR>
-  nnoremap <silent> <buffer> <S-Tab>   <Cmd>CalendarDiaryCycle prev<CR>
+  nnoremap <silent> <buffer> <C-Right> <ScriptCmd>frontend.WeekViewNavigate('next')<CR>
+  nnoremap <silent> <buffer> <C-Left>  <ScriptCmd>frontend.WeekViewNavigate('prev')<CR>
+  nnoremap <silent> <buffer> t         <ScriptCmd>frontend.WeekViewNavigate('today')<CR>
+  nnoremap <silent> <buffer> <Tab>     <ScriptCmd>frontend.DiaryCycleNavigate('next')<cr>
+  nnoremap <silent> <buffer> <S-Tab>   <ScriptCmd>frontend.DiaryCycleNavigate('prev')<cr>
   nnoremap <silent> <buffer> <F5>      <Cmd>CalendarRefresh<CR>
   nnoremap <silent> <buffer> ?         <ScriptCmd>help_popup.ShowWeek()<CR>
 enddef

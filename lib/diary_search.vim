@@ -21,7 +21,15 @@ export def Run(diary_path: string, engine: string,
     setlocal nowinfixbuf
   endif
   try
+    var saved_key = &key
     if engine ==# 'internal'
+      # Check if the diary has a crypto key to avoid repeating inserting key
+      # for each match found by vimgrep
+      var active_diary = g:calendar_config.active_diary
+      if g:calendar_config.diaries_dict['active_diary].secret
+        &key = inputsecret($"Insert key for diary '{current_diary}': ")
+      endif
+
       var pattern = escape(keyword, '/\')
       var file_args = files->mapnew((_, path) => fnameescape(path))->join(' ')
       execute $'vimgrep /{pattern}/j {file_args}'
@@ -33,6 +41,7 @@ export def Run(diary_path: string, engine: string,
     if restore_winfixbuf
       setlocal winfixbuf
     endif
+    &key = saved_key
   endtry
 
   silent cwindow
