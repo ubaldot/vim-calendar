@@ -37,24 +37,32 @@ enddef
 
 # Diaries with secret
 def SetDiaryKey()
+  if !exists('g:calendar_config')
+    return
+  elseif !has_key(g:calendar_config, 'active_diary')
+    return
+  endif
+
   const active_diary = g:calendar_config.active_diary
+  if !has_key(g:calendar_config.diaries_dict[active_diary], 'path')
+    return
+  endif
+
   const active_diary_path_normalized =  g:calendar_config.diaries_dict[active_diary].path
-    ->fnamemodify('%:p')
+    ->fnamemodify(':p')
     ->substitute('\\', '/', 'g')
   const current_filepath_normalized = expand('%:p')->substitute('\\', '/', 'g')
 
-  # Check if a file belong to a diary
+  echom "A: " .. active_diary_path_normalized
+  echom "B: " .. current_filepath_normalized
+
+  # Check if the file being opened belong to a diary
   if current_filepath_normalized =~# active_diary_path_normalized
-    # if has_key(g:calendar_config.diaries_dict[active_diary], 'secret') && g:calendar_config.diaries_dict[active_diary].secret
-    if has_key(g:calendar_config.diaries_dict[active_diary], 'secret')
-      if !empty(&key)
-        var response = input("'key' option already set. Do you want to change it? [y/n]: ", 'n')
-        if response !=# 'y'
-          return
-        endif
-      endif
+    if empty(&key) && has_key(g:calendar_config.diaries_dict[active_diary], 'secret')
       &key = inputsecret($"Insert key for diary '{active_diary}': ")
     endif
+  else
+    &key = ''
   endif
 enddef
 
