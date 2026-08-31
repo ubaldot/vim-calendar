@@ -68,6 +68,12 @@ vim-calendar makes the following commands available:
                     __WeekHeader__, and __Appointment__.  Use this when you
                     want a completely clean state.
 
+                                            *calendar-:CalendarActivate*
+:CalendarActivate {diary}  Activate {diary}. The value of {diary} shall be a
+                           key of g:calendar_config.diaries_dict dictionary.
+
+                                            *calendar-:CalendarActive*
+:CalendarActive     Display the current active diary.
 ==============================================================================
 MAPPINGS                                        *calendar-mappings*
 
@@ -232,8 +238,12 @@ Top-level keys ~
                                             in the local event form.
                                             See |calendar-address-book|.
 
-                                secret      If |true|, it sets 'key' when
-                                            using internal search feature.
+                                secret      If |true|, it sets 'key' when a
+                                            file of the active diary is open.
+                                            It is assumed that every file
+                                            belonging to a diary share the
+                                            same 'key'.
+
 
               active_diary      Key from diaries_dict to use on startup.
                                 Default: first key in diaries_dict
