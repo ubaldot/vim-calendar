@@ -45,16 +45,19 @@ def SetDiaryKey()
 
   # Check if a file belong to a diary
   if current_filepath_normalized =~# active_diary_path_normalized
+    echom "FOO"
     echom "has_key: " .. has_key(g:calendar_config.diaries_dict[active_diary], 'secret')
+    echom "key_val: " .. g:calendar_config.diaries_dict[active_diary]['secret']
+    # if has_key(g:calendar_config.diaries_dict[active_diary], 'secret') && g:calendar_config.diaries_dict[active_diary].secret
     if has_key(g:calendar_config.diaries_dict[active_diary], 'secret')
-        && g:calendar_config.diaries_dict[active_diary].secret
+    echom "BAR"
       if !empty(&key)
-        var response = input("'key' option already set. Do you want to change it? [y/n]", 'y')
+        var response = input("'key' option already set. Do you want to change it? [y/n]: ", 'n')
         if response !=# 'y'
           return
         endif
       endif
-      &key = inputsecret($'Insert key for diary {active_diary}')
+      &key = inputsecret($"Insert key for diary '{active_diary}': ")
     endif
   endif
 enddef
