@@ -248,11 +248,6 @@ export def ActivateDiary(name: string): bool
   diary.Configure(cfg_diary_path, cfg_diary_resolution,
     cfg_address_book_path, cfg_auto_create_diary_dirs)
   ConfigureProvider(name, d)
-
-  if has_key(g:calendar_config.diaries_dict[name], 'secret')
-    &key = ''
-  endif
-
   return true
 enddef
 
