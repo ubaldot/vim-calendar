@@ -253,6 +253,25 @@ def g:Test_toggle_reuses_cached_events()
     ':CalendarRefresh must bypass the cache')
 enddef
 
+# Toggling from another tab must focus the existing calendar, not open another.
+def g:Test_toggle_from_other_tab_reuses_calendar_tab()
+  ResetConfig()
+  var initial_tabs = tabpagenr('$')
+  CalendarToggle
+  var calendar_tab = tabpagenr()
+  tabnew
+
+  CalendarToggle
+  assert_equal(calendar_tab, tabpagenr())
+  assert_equal(initial_tabs + 2, tabpagenr('$'),
+    'Toggling from another tab must not create a second calendar tab')
+
+  CalendarToggle
+  assert_equal(initial_tabs + 1, tabpagenr('$'))
+  tabclose!
+  assert_equal(initial_tabs, tabpagenr('$'))
+enddef
+
 # Changing week fetches once; coming back to a visited week uses the cache.
 def g:Test_week_change_fetches_once_per_week()
   ResetConfig()

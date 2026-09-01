@@ -87,6 +87,7 @@ export def InitVariables(): bool
     cfg.week_display_type,
     cfg.week_cell_width
   )
+  week_view.SetNavigationHandlers(WeekViewNavigate, DiaryCycleNavigate)
   ConfigureProvider(cfg_active_diary, cfg_diaries[cfg_active_diary])
   reminder.SetSoundEnabled(cfg.reminder_sound)
 
@@ -441,7 +442,6 @@ def ActionOpenDiaryAndClose()
 
   # Close the calendar (tab or buffers) before opening the file so the edit
   # lands in the window that becomes current after the tab closes.
-  cal_tab_winid = -1
   Close()
   if exists('+winfixbuf') && &l:winfixbuf
     setlocal nowinfixbuf
@@ -474,9 +474,15 @@ def CalendarBuildKeymap()
 
 enddef
 
-# Toggle the calendar tab: jump to it if open elsewhere, close if current,
-# open fresh if not yet open.
-var cal_tab_winid = -1
+# Find the calendar window across all tab pages.
+def FindCalendarWindow(): number
+  var bn = bufnr(cal_bufname)
+  if bn <= 0
+    return -1
+  endif
+  var windows = win_findbuf(bn)
+  return empty(windows) ? -1 : windows[0]
+enddef
 
 # Navigate the week view to the next week, previous week, or today, and
 # synchronise the left calendar pane by positioning the cursor on the target
@@ -549,11 +555,10 @@ export def CalendarToggle(year: number = -1, month: number = -1)
     return
   endif
 
-  if win_id2win(cal_tab_winid) > 0
-      && bufname(winbufnr(cal_tab_winid)) ==# cal_bufname
-    var [tabnr, _] = win_id2tabwin(cal_tab_winid)
+  var cal_winid = FindCalendarWindow()
+  if cal_winid > 0
+    var [tabnr, _] = win_id2tabwin(cal_winid)
     if tabpagenr() == tabnr
-      cal_tab_winid = -1
       if tabpagenr('$') > 1
         tabclose
       else
@@ -562,14 +567,12 @@ export def CalendarToggle(year: number = -1, month: number = -1)
     else
       execute $'tabnext {tabnr}'
       var week_windows = win_findbuf(bufnr(week_view.WEEK_BUF_NAME))
-      win_gotoid(empty(week_windows) ? cal_tab_winid : week_windows[0])
+      win_gotoid(empty(week_windows) ? cal_winid : week_windows[0])
     endif
     return
   endif
 
   Show(year, month)
-  var calendar_windows = win_findbuf(bufnr(cal_bufname))
-  cal_tab_winid = empty(calendar_windows) ? -1 : calendar_windows[0]
   week_view.FetchEvents()
   week_view.RescheduleReminders()
 enddef
@@ -578,9 +581,9 @@ enddef
 # Called by :CalendarWipe.
 export def CalendarWipe()
   reminder.CancelAll()
-  if win_id2win(cal_tab_winid) > 0
-    var [tabnr, _] = win_id2tabwin(cal_tab_winid)
-    cal_tab_winid = -1
+  var cal_winid = FindCalendarWindow()
+  if cal_winid > 0
+    var [tabnr, _] = win_id2tabwin(cal_winid)
     if tabpagenr('$') > 1
       execute $'tabclose {tabnr}'
     endif

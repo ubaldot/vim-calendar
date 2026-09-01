@@ -3,12 +3,11 @@ vim9script
 import autoload "./appointments.vim"
 import autoload "./help_popup.vim"
 import autoload "./backend.vim"
-import autoload "./frontend.vim"
 import autoload "./highlights.vim"
 import autoload "./reminder.vim"
 
-# Week view panel — self-contained module.
-# Owns the week view buffers and rendering state.
+# Week view panel — owns its buffers and rendering state.
+# Cross-view navigation is delegated to handlers installed by frontend.vim.
 # Shared state lives in t:cal_* (tab-local, single calendar tab enforced).
 # Date math is delegated to backend.vim.
 
@@ -32,6 +31,17 @@ const LANE_SEP = '┆'
 var week_day_col          = 16   # cell width; set via Configure()
 var cfg_week_display_type = 'eu' # 'eu' | 'us' | 'work'; set via Configure()
 var manage_events_func = ''
+var state_navigation_handlers: dict<func(string): void> = {}
+
+# Install frontend handlers for actions that coordinate multiple views.
+export def SetNavigationHandlers(
+    NavigateHandler: func(string): void,
+    CycleHandler: func(string): void)
+  state_navigation_handlers = {
+    navigate_week: NavigateHandler,
+    cycle_diary: CycleHandler,
+  }
+enddef
 
 # Maps body-buffer line number (as string) → list of
 # {first, last, event} screen-column spans, one per rendered event block on
@@ -1033,6 +1043,26 @@ def OpenAppointmentBody()
   nnoremap <silent> <buffer> <Esc> <Cmd>bwipeout!<CR>
 enddef
 
+# Delegate week navigation to the workspace orchestrator.
+def NavigateWeek(direction: string)
+  var Handler = get(state_navigation_handlers, 'navigate_week', null_function)
+  if Handler == null
+    echoerr '[Calendar] Week navigation handler is not configured.'
+    return
+  endif
+  Handler(direction)
+enddef
+
+# Delegate diary cycling to the workspace orchestrator.
+def CycleDiary(direction: string)
+  var Handler = get(state_navigation_handlers, 'cycle_diary', null_function)
+  if Handler == null
+    echoerr '[Calendar] Diary cycle handler is not configured.'
+    return
+  endif
+  Handler(direction)
+enddef
+
 # Set buffer-local keymaps for the __WeekView__ body buffer.
 def WeekViewBuildKeymap()
   nnoremap <silent> <buffer> K         <ScriptCmd>ShowAppointmentDetails()<CR>
@@ -1041,11 +1071,11 @@ def WeekViewBuildKeymap()
   nnoremap <silent> <buffer> d         <ScriptCmd>EventAction('delete')<CR>
   nnoremap <silent> <buffer> a         <ScriptCmd>EventAction('accept')<CR>
   nnoremap <silent> <buffer> v         <ScriptCmd>EventAction('tentative')<CR>
-  nnoremap <silent> <buffer> <C-Right> <ScriptCmd>frontend.WeekViewNavigate('next')<CR>
-  nnoremap <silent> <buffer> <C-Left>  <ScriptCmd>frontend.WeekViewNavigate('prev')<CR>
-  nnoremap <silent> <buffer> t         <ScriptCmd>frontend.WeekViewNavigate('today')<CR>
-  nnoremap <silent> <buffer> <Tab>     <ScriptCmd>frontend.DiaryCycleNavigate('next')<cr>
-  nnoremap <silent> <buffer> <S-Tab>   <ScriptCmd>frontend.DiaryCycleNavigate('prev')<cr>
+  nnoremap <silent> <buffer> <C-Right> <ScriptCmd>NavigateWeek('next')<CR>
+  nnoremap <silent> <buffer> <C-Left>  <ScriptCmd>NavigateWeek('prev')<CR>
+  nnoremap <silent> <buffer> t         <ScriptCmd>NavigateWeek('today')<CR>
+  nnoremap <silent> <buffer> <Tab>     <ScriptCmd>CycleDiary('next')<CR>
+  nnoremap <silent> <buffer> <S-Tab>   <ScriptCmd>CycleDiary('prev')<CR>
   nnoremap <silent> <buffer> <F5>      <Cmd>CalendarRefresh<CR>
   nnoremap <silent> <buffer> ?         <ScriptCmd>help_popup.ShowWeek()<CR>
 enddef
@@ -1057,8 +1087,8 @@ def WeekHeaderBuildKeymap()
   nnoremap <silent> <buffer> d         <ScriptCmd>EventAction('delete')<CR>
   nnoremap <silent> <buffer> a         <ScriptCmd>EventAction('accept')<CR>
   nnoremap <silent> <buffer> v         <ScriptCmd>EventAction('tentative')<CR>
-  nnoremap <silent> <buffer> <Tab>     <ScriptCmd>frontend.DiaryCycleNavigate('next')<cr>
-  nnoremap <silent> <buffer> <S-Tab>   <ScriptCmd>frontend.DiaryCycleNavigate('prev')<cr>
+  nnoremap <silent> <buffer> <Tab>     <ScriptCmd>CycleDiary('next')<CR>
+  nnoremap <silent> <buffer> <S-Tab>   <ScriptCmd>CycleDiary('prev')<CR>
   nnoremap <silent> <buffer> <F5>      <Cmd>CalendarRefresh<CR>
   nnoremap <silent> <buffer> ?         <ScriptCmd>help_popup.ShowWeek()<CR>
 enddef
