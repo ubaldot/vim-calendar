@@ -3,17 +3,26 @@ vim9script
 # Calendar highlight group definitions and match management.
 # Shared state is read from t:cal_* (tab-local).
 
+# Remove only matches owned by vim-calendar from the target window.
+def ClearCalendarMatches(win_id: number)
+  for match in getmatches(win_id)
+    if get(match, 'group', '') =~# '^Cal'
+      matchdelete(match.id, win_id)
+    endif
+  endfor
+enddef
+
 # Highlight today's column in the __WeekHeader__ window.
 # today_week_key: the Monday date string for today's ISO week (caller computes
 # it to avoid importing backend here). Only highlights when today is in the
 # displayed week (t:cal_week_key).
 export def WeekHeader(win_id: number, today_week_key: string)
-  win_execute(win_id, 'clearmatches()')
+  ClearCalendarMatches(win_id)
   if today_week_key !=# get(t:, 'cal_week_key', '')
     return
   endif
   var today_d = str2nr(strftime('%d'))
-  win_execute(win_id, $"call matchadd('CalWeekToday', ' {today_d},[^│]*')")
+  matchadd('CalWeekToday', $' {today_d},[^│]*', 10, -1, {window: win_id})
 enddef
 
 # Update only the CalCurrWeek match in the current window (the week-number
@@ -36,10 +45,10 @@ export def UpdateCurrWeek()
 enddef
 
 # Apply all calendar match highlights to the current (split) window.
-# Clears existing matches first, then adds today/sat/sun/holiday/week marks
-# and static patterns (help hint, header, diary list, weekday row).
+# Clears calendar-owned matches first, then adds today/sat/sun/holiday/week
+# marks and static patterns (help hint, header, diary list, weekday row).
 export def Apply(view: dict<any>, week_num_enabled: bool)
-  clearmatches()
+  ClearCalendarMatches(win_getid())
 
   if !empty(view.today) | matchaddpos('CalToday', view.today, 40) | endif
   if !empty(view.sat) | matchaddpos('CalSaturday', view.sat, 30) | endif

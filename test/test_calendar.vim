@@ -191,12 +191,18 @@ def g:Test_diary_cycle_split_tab_keys()
   CalendarToggle 2026, 7
   WaitForAssert(() => assert_equal(3, winnr('$')))
   FocusCalendar()
+  var foreign_match_id = matchadd('Search', 'July')
 
   feedkeys("\<Tab>", 'xt')
   WaitForAssert(() => assert_equal('Beta', g:calendar_config.active_diary))
+  assert_true(index(getmatches()->mapnew((_, match) => match.id),
+    foreign_match_id) >= 0,
+    'Re-rendering must preserve matches owned by Vim or other plugins')
 
   feedkeys("\<S-Tab>", 'xt')
   WaitForAssert(() => assert_equal('Alpha', g:calendar_config.active_diary))
+  assert_true(index(getmatches()->mapnew((_, match) => match.id),
+    foreign_match_id) >= 0)
 
   execute "normal q"
 enddef
