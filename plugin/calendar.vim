@@ -16,10 +16,16 @@ import autoload "../lib/frontend.vim"
 import autoload "../lib/local_provider.vim"
 import autoload "../lib/week_view.vim"
 
+def Diaries(A: string, L: string, P: number): list<string>
+  return g:calendar_config.diaries_dict->keys()
+enddef
+
 command! -nargs=* CalendarToggle   frontend.CalendarToggle(<args>)
 command! -nargs=0 CalendarRefresh  week_view.CalendarRefresh()
 command! -nargs=* CalendarSearch   frontend.Search(<f-args>)
 command! -nargs=0 CalendarWipe     frontend.CalendarWipe()
+command! -nargs=1 -complete=customlist,Diaries CalendarActivate frontend.InitVariables() | frontend.ActivateDiary(<f-args>)
+command! -nargs=0 CalendarActive     echo g:calendar_config.active_diary
 
 # Global wrapper required because &omnifunc must be a string name resolvable
 # in legacy Vimscript context.

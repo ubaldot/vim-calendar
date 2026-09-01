@@ -15,16 +15,14 @@ export def Show()
   var lines = [
     'Calendar key bindings',
     '',
-    'h/j/k/l  move cursor',
-    '<Up>  previous month',
-    '<Down>  next month',
-    '<Left>  previous year',
-    '<Right>  next year',
-    '<CR>  open/switch on cursor',
-    't  go to today',
-    '<Tab> / <S-Tab>  next/prev diary',
+    'hjkl and arrows              move cursor',
+    '<c-{hjkl}> and <c-{arrows}>  scroll month/year',
+    '<CR>                         jump to week',
+    't                            go to today',
+    '<Tab> / <S-Tab>              next/prev diary',
+    '<S-CR>                       open diary',
     '',
-    'q or <Esc>  close',
+    'q or <Esc>                   close',
   ]
   if popup_id > 0
     popup_close(popup_id)

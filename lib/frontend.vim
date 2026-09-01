@@ -54,7 +54,7 @@ def ConfigureProvider(name: string, diary_config: dict<any>)
 enddef
 
 # Initialize script-local runtime state from g:calendar_config.
-def InitVariables(): bool
+export def InitVariables(): bool
   var cfg = config.Load()
   if !get(cfg, 'ok', false)
     return false
@@ -234,7 +234,7 @@ enddef
 
 # Switch active diary, update cfg_* and calendar_view state, and clear the
 # week cache so the next render fetches fresh data.
-def ActivateDiary(name: string): bool
+export def ActivateDiary(name: string): bool
   if !has_key(cfg_diaries, name)
     return false
   endif
