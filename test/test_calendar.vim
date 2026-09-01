@@ -41,6 +41,20 @@ def CursorOnMonthDay(month_header: string, day: number)
   assert_true(false, $'Missing day {day} in {month_header}')
 enddef
 
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December']
+
+# Return the month headers of the calendar buffer, top to bottom.
+def MonthHeaders(): list<string>
+  var headers: list<string> = []
+  for line in getline(1, '$')
+    if line =~ '^\s*\a\+\s\+\d\{4}\s*$'
+      headers->add(trim(line))
+    endif
+  endfor
+  return headers
+enddef
+
 def FocusCalendar()
   var windows = win_findbuf(bufnr('__Calendar__'))
   if !empty(windows)
@@ -95,24 +109,28 @@ def g:Test_calendar_reuses_stale_hidden_buffer()
   CalendarWipe
 enddef
 
-# TODO The following function needs adjustment
-# def g:Test_calendar_arguments()
-#   ResetConfig()
-#   var current_month_name = strftime('%B')
+def g:Test_calendar_arguments()
+  ResetConfig()
+  var current_month_name = MONTH_NAMES[str2nr(strftime('%m')) - 1]
 
-#   CalendarToggle 2031
-#   WaitForAssert(() => assert_equal(3, winnr('$')))
-#   FocusCalendar()
-#   assert_match($'{current_month_name}\s\+2031', join(getline(1, '$'), "\n"))
-#   execute "normal q"
+  # Year only: the base month is the current month of the requested year,
+  # rendered as the middle block of the three.
+  CalendarToggle 2031
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
+  var headers = MonthHeaders()
+  assert_equal(3, len(headers))
+  assert_equal($'{current_month_name} 2031', headers[1])
+  execute "normal q"
 
-#   CalendarToggle 2032, 5
-#   WaitForAssert(() => assert_equal(3, winnr('$')))
-#   FocusCalendar()
-#   assert_match('May\s\+2032', join(getline(1, '$'), "\n"))
-#   execute "normal q"
-#   assert_equal(1, winnr('$'))
-# enddef
+  # Year and month: the requested month is centred between its neighbours.
+  CalendarToggle 2032, 5
+  WaitForAssert(() => assert_equal(3, winnr('$')))
+  FocusCalendar()
+  assert_equal(['April 2032', 'May 2032', 'June 2032'], MonthHeaders())
+  execute "normal q"
+  assert_equal(1, winnr('$'))
+enddef
 
 def g:Test_calendar_position_right()
   ResetConfig()
